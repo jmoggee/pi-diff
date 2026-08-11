@@ -47,96 +47,118 @@ export interface ParsedDiff {
  * Parse a unified diff/patch string into one or more ParsedDiff.
  * Each file in the patch gets its own entry.
  */
+function isPatchMetadataLine(line: string): boolean {
+	return /^(?:diff --git |Index: |={3,}$|--- |\+\+\+ |index |new file |old mode |new mode |deleted |rename |similarity |copy |Binary files )/.test(
+		line,
+	);
+}
+
 export function parsePatchFiles(patch: string): ParsedDiff[] {
 	if (!patch.trim()) return [];
 
-	// Split into file sections
+	// Split into file sections. Pi's patch generator uses `---`/`+++`;
+	// diff-format patches may use `diff --git` or `Index:` headers.
 	const lines = patch.split("\n");
 	const sections: string[][] = [];
 	let cur: string[] = [];
-
-	// Split by "+++ " or "diff --git " (start of a new file)
 	for (let i = 0; i < lines.length; i++) {
-		const l = lines[i];
-		if (l.startsWith("diff --git ") || (l.startsWith("--- ") && cur.length > 0 && cur[0]?.startsWith("+++"))) {
-			if (cur.length > 0) sections.push(cur);
+		const line = lines[i];
+		const startsNewFile =
+			line.startsWith("diff --git ") ||
+			line.startsWith("Index: ") ||
+			(line.startsWith("--- ") && lines[i + 1]?.startsWith("+++ ") && parseOneFile(cur) !== null);
+		if (startsNewFile && cur.length > 0) {
+			sections.push(cur);
 			cur = [];
 		}
-		cur.push(l);
+		cur.push(line);
 	}
 	if (cur.length > 0) sections.push(cur);
 
 	const result: ParsedDiff[] = [];
-	for (const sec of sections) {
-		const parsed = parseOneFile(sec);
-		if (parsed) result.push(parsed);
+	for (const section of sections) {
+		const hasHunk = section.some((line) => parseHunkHeader(line));
+		const looksLikeFileSection = section.some(
+			(line) =>
+				line.startsWith("diff --git ") ||
+				line.startsWith("Index: ") ||
+				line.startsWith("--- ") ||
+				line.startsWith("+++ "),
+		);
+		if (!hasHunk) {
+			if (looksLikeFileSection) return [];
+			continue;
+		}
+		const parsed = parseOneFile(section);
+		if (!parsed) return [];
+		result.push(parsed);
 	}
-	return result.length > 0 ? result : [parseOneFile(lines) ?? emptyDiff()];
+	return result;
 }
 
-/** Parse a single file section into a ParsedDiff. */
+/** Parse a single file section. Invalid hunk content or line counts fail closed. */
 function parseOneFile(lines: string[]): ParsedDiff | null {
 	const all: DiffLine[] = [];
-	let added = 0,
-		removed = 0;
-
+	let added = 0;
+	let removed = 0;
 	let i = 0;
+
 	while (i < lines.length) {
-		const raw = lines[i];
-		const hdr = parseHunkHeader(raw);
+		const hdr = parseHunkHeader(lines[i]);
 		if (!hdr) {
+			if (lines[i].startsWith("@@") || lines[i].startsWith("\\\\ ") || !isPatchMetadataLine(lines[i])) return null;
 			i++;
 			continue;
 		}
 
-		// Emit sep for this hunk's metadata (synthetic at position 0 for first)
-		if (all.length === 0 || all.filter((l) => l.type !== "sep").length > 0) {
-			// After some non-sep content, push a sep for the next hunk
-			all.push({ type: "sep", oldNum: null, newNum: null, content: "", hunkMeta: hdr });
-		} else {
-			// Already have only seps (first hunk) — update the last sep's metadata
-			all[all.length - 1] = { type: "sep", oldNum: null, newNum: null, content: "", hunkMeta: hdr };
-		}
-
-		let oL = hdr.oldStart;
-		let nL = hdr.newStart;
-
-		// Advance past the hunk header
+		all.push({ type: "sep", oldNum: null, newNum: null, content: "", hunkMeta: hdr });
+		let oldConsumed = 0;
+		let newConsumed = 0;
+		let oldLine = hdr.oldStart;
+		let newLine = hdr.newStart;
 		i++;
 
-		// Process hunk content lines (until next hunk header or end)
 		while (i < lines.length) {
 			const line = lines[i];
-			if (line.startsWith("@@")) break; // next hunk header — outer loop handles it
-			if (line.startsWith("\\ ")) {
-				i++;
-				continue; // "\\ No newline at end of file"
+			if (line.startsWith("@@")) {
+				if (!parseHunkHeader(line)) return null;
+				break;
 			}
-			if (/^(---|\+\+\+|diff --git|index |new file|old mode|new mode|deleted|rename|similarity|copy)/.test(line)) {
+			if (line.length === 0) {
+				if (i !== lines.length - 1) return null;
 				i++;
-				continue; // skip headers/metadata
+				continue; // terminal newline after the patch
 			}
-			if (line.length === 0 || line[0] === " ") {
-				all.push({ type: "ctx", oldNum: oL++, newNum: nL++, content: line.slice(1) });
+			if (line === "\\ No newline at end of file") {
+				i++;
+				continue;
+			}
+			if (line[0] === " ") {
+				all.push({ type: "ctx", oldNum: oldLine++, newNum: newLine++, content: line.slice(1) });
+				oldConsumed++;
+				newConsumed++;
 			} else if (line[0] === "+") {
-				all.push({ type: "add", oldNum: null, newNum: nL++, content: line.slice(1) });
+				all.push({ type: "add", oldNum: null, newNum: newLine++, content: line.slice(1) });
 				added++;
+				newConsumed++;
 			} else if (line[0] === "-") {
-				all.push({ type: "del", oldNum: oL++, newNum: null, content: line.slice(1) });
+				all.push({ type: "del", oldNum: oldLine++, newNum: null, content: line.slice(1) });
 				removed++;
+				oldConsumed++;
+			} else {
+				return null;
 			}
 			i++;
 		}
+
+		if (oldConsumed !== hdr.oldLines || newConsumed !== hdr.newLines) return null;
 	}
 
-	if (all.length === 0) return null;
-
-	// Compute chars from content lines only (not seps)
+	if (all.length === 0 || all.every((line) => line.type === "sep")) return null;
 	let chars = 0;
-	for (const l of all) {
-		if (l.type !== "sep") chars += l.content.length;
+	for (const line of all) {
+		if (line.type !== "sep") chars += line.content.length;
 	}
-
 	return { lines: all, added, removed, chars };
 }
 
@@ -153,10 +175,6 @@ function parseHunkHeader(line: string): HunkMeta | null {
 	const newLines = m[4] ? Number(m[4]) : 1;
 	const context = m[5]?.trim() || undefined;
 	return { oldStart, oldLines, newStart, newLines, context };
-}
-
-function emptyDiff(): ParsedDiff {
-	return { lines: [], added: 0, removed: 0, chars: 0 };
 }
 
 // ---------------------------------------------------------------------------

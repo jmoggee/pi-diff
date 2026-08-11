@@ -21,7 +21,8 @@
  *   • Async rendering with invalidate() for non-blocking preview
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { constants, existsSync, readFileSync } from "node:fs";
+import { access as accessFile, readFile, writeFile } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -40,8 +41,6 @@ import {
 	sepLabelSplit,
 	sepLabelUnified,
 } from "./core/diff.js";
-import { replace } from "./core/replace.js";
-import { registerEditGuard } from "./edit-guard.js";
 
 import {
 	applyDiffPalette as applySharedDiffPalette,
@@ -2001,16 +2000,45 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 		return oldText && oldText !== newText ? [{ oldText, newText }] : [];
 	}
 
-	function summarizeEditOperations(operations: Array<{ oldText: string; newText: string }>) {
-		const diffs = operations.map((edit) => parseDiff(edit.oldText, edit.newText));
-		const totalAdded = diffs.reduce((sum, diff) => sum + diff.added, 0);
-		const totalRemoved = diffs.reduce((sum, diff) => sum + diff.removed, 0);
-		return {
-			diffs,
-			totalAdded,
-			totalRemoved,
-			summary: summarize(totalAdded, totalRemoved),
-		};
+	function normalizeEditMatchText(text: string): string {
+		return text
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n")
+			.normalize("NFKC")
+			.split("\n")
+			.map((line) => line.trimEnd())
+			.join("\n")
+			.replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+			.replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+			.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, "-")
+			.replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, " ");
+	}
+
+	function rejectOverlappingEditMatches(
+		content: string,
+		filePath: string,
+		operations: Array<{ oldText: string; newText: string }>,
+	): void {
+		if (!filePath || operations.length === 0) return;
+		if (content.startsWith("\uFEFF")) content = content.slice(1);
+		const normalizedContent = normalizeEditMatchText(content);
+		for (const [index, operation] of operations.entries()) {
+			const oldText = normalizeEditMatchText(operation.oldText);
+			if (!oldText) continue;
+			let occurrences = 0;
+			let offset = 0;
+			while (true) {
+				const match = normalizedContent.indexOf(oldText, offset);
+				if (match === -1) break;
+				occurrences++;
+				if (occurrences > 1) {
+					throw new Error(
+						`Found ambiguous overlapping occurrences for edits[${index}] in ${filePath}. Provide more context to make oldText unique.`,
+					);
+				}
+				offset = match + 1;
+			}
+		}
 	}
 
 	registerToolIfEnabled("edit", {
@@ -2035,178 +2063,38 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 
 		async execute(tid: string, params: any, sig: any, upd: any, ctx: any) {
 			const fp = params.path ?? params.file_path ?? "";
-
 			const operations = getEditOperations(params);
+			const guardedEdit = createEditTool(cwd, {
+				operations: {
+					access: (filePath: string) => accessFile(filePath, constants.R_OK | constants.W_OK),
+					readFile: async (filePath: string) => {
+						const content = await readFile(filePath);
+						rejectOverlappingEditMatches(content.toString("utf8"), fp, operations);
+						return content;
+					},
+					writeFile: (filePath: string, content: string) => writeFile(filePath, content, "utf8"),
+				},
+			});
+			const result = await guardedEdit.execute(tid, params, sig, upd, ctx);
+			const patch = result?.details?.patch;
+			const diff = typeof patch === "string" ? parsePatchFiles(patch)[0] : undefined;
+			if (!diff || (diff.added === 0 && diff.removed === 0)) return result;
 
-			// Try cascading replace() first — smarter matching than SDK's exact-only edit
-			if (fp && operations.length > 0 && existsSync(fp)) {
-				try {
-					let content = readFileSync(fp, "utf-8");
-					let firstStrategy = "";
-					let replaceOk = true;
-
-					for (const op of operations) {
-						const r = replace(content, op.oldText, op.newText);
-						if (r.changed) {
-							content = r.content;
-							if (!firstStrategy) firstStrategy = r.strategy;
-						} else {
-							replaceOk = false;
-							break;
-						}
-					}
-
-					if (replaceOk) {
-						writeFileSync(fp, content, "utf-8");
-
-						const { diffs, summary } = summarizeEditOperations(operations);
-						const lg = detectDiffLanguage(fp);
-
-						if (operations.length === 1) {
-							let editLine = 0;
-							try {
-								const idx = content.indexOf(operations[0].newText);
-								if (idx >= 0) editLine = content.slice(0, idx).split("\n").length;
-							} catch {
-								editLine = 0;
-							}
-							const useFull = !!(params as any)._expandGaps;
-							const diffData = useFull ? parseDiff(operations[0].oldText, operations[0].newText, undefined) : diffs[0];
-							return {
-								content: [{ type: "text" as const, text: `Edited ${sp(fp)}` }],
-								details: {
-									_type: "editInfo",
-									summary: editLine > 0 ? `${summary} at line ${editLine}` : summary,
-									filePath: fp,
-									editLine,
-									diff: diffData,
-									language: lg,
-									oldContent: operations[0].oldText,
-									newContent: operations[0].newText,
-									_replaceStrategy: firstStrategy,
-								},
-							};
-						}
-
-						// Compute the line of the first edit for the title summary
-						const firstEditLine = (() => {
-							if (!operations[0]?.newText) return 0;
-							const idx = content.indexOf(operations[0].newText);
-							if (idx < 0) return 0;
-							return content.slice(0, idx).split("\n").length;
-						})();
-
-						// Merge all diffs into one combined view for rendering
-						const merged: (typeof diffs)[0] = {
-							lines: diffs.flatMap((diff, i) => [
-								...(i > 0
-									? [
-											{
-												type: "sep" as const,
-												oldNum: null,
-												newNum: null,
-												content: `───── Edit ${i + 1} ─────`,
-											},
-										]
-									: []),
-								...diff.lines,
-							]),
-							added: diffs.reduce((sum, diff) => sum + diff.added, 0),
-							removed: diffs.reduce((sum, diff) => sum + diff.removed, 0),
-							chars: diffs.reduce((sum, diff) => sum + diff.chars, 0),
-						};
-						return {
-							content: [{ type: "text" as const, text: `Edited ${sp(fp)}` }],
-							details: {
-								_type: "multiEditInfo",
-								summary: firstEditLine > 0 ? `${summary} at line ${firstEditLine}` : summary,
-								filePath: fp,
-								editCount: operations.length,
-								diffLineCount: merged.lines.length,
-								diff: merged,
-								language: lg,
-							},
-						};
-					}
-				} catch (replaceError) {
-					// replace() failed; fall through to SDK edit tool
-					console.warn(
-						`[pi-diff] replace() failed, falling back to SDK: ${replaceError instanceof Error ? replaceError.message : String(replaceError)}`,
-					);
-				}
-			}
-
-			const result = await origEdit.execute(tid, params, sig, upd, ctx);
-
-			if (operations.length === 0) return result;
-
-			const { diffs, summary } = summarizeEditOperations(operations);
-			const lg = detectDiffLanguage(fp);
-			if (operations.length === 1) {
-				let editLine = 0;
-				try {
-					if (fp && existsSync(fp)) {
-						const f = readFileSync(fp, "utf-8");
-						const idx = f.indexOf(operations[0].newText);
-						if (idx >= 0) editLine = f.slice(0, idx).split("\n").length;
-					}
-				} catch {
-					editLine = 0;
-				}
-				const useFull = !!(params as any)._expandGaps;
-				const diffData = useFull ? parseDiff(operations[0].oldText, operations[0].newText, undefined) : diffs[0];
-				(result as Record<string, unknown>).details = {
-					_type: "editInfo",
-					summary: editLine > 0 ? `${summary} at line ${editLine}` : summary,
-					filePath: fp,
-					editLine,
-					diff: diffData,
-					language: lg,
-					oldContent: operations[0].oldText,
-					newContent: operations[0].newText,
-				};
-				return result;
-			}
-
-			// Merge all diffs into one combined view for rendering
-			const merged: (typeof diffs)[0] = {
-				lines: diffs.flatMap((diff, i) => [
-					// Add separator between multiple edits
-					...(i > 0
-						? [
-								{
-									type: "sep" as const,
-									oldNum: null,
-									newNum: null,
-									content: `───── Edit ${i + 1} ─────`,
-								},
-							]
-						: []),
-					...diff.lines,
-				]),
-				added: diffs.reduce((sum, diff) => sum + diff.added, 0),
-				removed: diffs.reduce((sum, diff) => sum + diff.removed, 0),
-				chars: diffs.reduce((sum, diff) => sum + diff.chars, 0),
-			};
-			let firstEditLine = 0;
-			try {
-				if (fp) {
-					const f = readFileSync(fp, "utf8");
-					const idx = f.indexOf(operations[0].newText);
-					if (idx >= 0) firstEditLine = f.slice(0, idx).split("\n").length;
-				}
-			} catch {
-				firstEditLine = 0;
-			}
-			(result as Record<string, unknown>).details = {
-				_type: "multiEditInfo",
-				summary: firstEditLine > 0 ? `${summary} at line ${firstEditLine}` : summary,
+			const editCount = operations.length || (Array.isArray(params?.edits) ? params.edits.length : 1);
+			stashEditHeaderStats(tid, editCount, diff.lines.length, diff.added, diff.removed);
+			const details = {
+				...result.details,
+				_type: editCount > 1 ? "multiEditInfo" : "editInfo",
 				filePath: fp,
-				editCount: operations.length,
-				diffLineCount: merged.lines.length,
-				diff: merged,
-				language: lg,
+				diff,
+				diffLineCount: diff.lines.length,
+				editCount,
+				linesAdded: diff.added,
+				linesRemoved: diff.removed,
+				language: detectDiffLanguage(fp),
+				summary: summarize(diff.added, diff.removed),
 			};
+			(result as Record<string, unknown>).details = details;
 			return result;
 		},
 
@@ -2218,25 +2106,13 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 
 			const stats = editCallStatsSuffix(ctx.toolCallId, theme);
 			if (ctx.argsComplete && operations.length > 0) {
-				let previewLine = 0;
-				try {
-					if (fp && existsSync(fp)) {
-						const cur = readFileSync(fp, "utf-8");
-						const idx = cur.indexOf(operations[0].oldText);
-						if (idx >= 0) previewLine = cur.slice(0, idx).split("\n").length;
-					}
-				} catch {
-					previewLine = 0;
-				}
-				const loc = previewLine > 0 ? `${TOOL_RESULT_INDENT}${theme.fg("muted", `at line ${previewLine}`)}` : "";
 				setToolHeaderBg(text);
-
 				text.setText(
 					formatToolFrameHeaderText({
 						label: "edit",
 						filePath: fp,
 						theme,
-						suffix: loc,
+						suffix: stats,
 						topPad: EDIT_DIFF_RESULT_FRAME.topPad,
 						bottomPad: EDIT_DIFF_RESULT_FRAME.bottomPad,
 						headerLeftPad: EDIT_DIFF_RESULT_FRAME.headerLeftPad,
@@ -2400,6 +2276,4 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			return text;
 		},
 	});
-
-	if (!disabledTools.has("edit")) registerEditGuard(pi);
 }

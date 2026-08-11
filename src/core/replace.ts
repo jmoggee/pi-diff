@@ -1,7 +1,8 @@
 /**
- * Cascading text replacement engine for LLM edit tools.
+ * Legacy in-memory replacement helpers used by the conservative apply_patch path.
+ * The edit tool delegates file mutation to Pi's strict SDK edit engine.
  *
- * When an LLM calls the edit tool with oldString + newString, the oldString
+ * When an LLM supplies oldString + newString, the oldString
  * often doesn't match exactly due to:
  *   - Whitespace differences (indentation, trailing spaces)
  *   - Escape sequences (LLMs escaping \n, \t, quotes in tool call params)
@@ -437,6 +438,7 @@ const REPLACERS: Replacer[] = [
 // ---------------------------------------------------------------------------
 
 /**
+ * Legacy in-memory replacement helper; not used by the edit tool.
  * Replace oldString with newString in content using a cascade of matching
  * strategies. Tries exact match first, then progressively relaxes matching
  * rules. If no strategy finds a match, returns unchanged content.

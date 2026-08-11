@@ -4,6 +4,20 @@ All notable changes to `@heyhuynhgiabuu/pi-diff` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-08-11
+
+### Changed
+
+- **Strict `edit` execution** — delegate matching, validation, serialization, BOM/EOL preservation, and file writes to Pi SDK 0.82 while retaining pi-diff's structured inputs and renderer.
+- **Accurate edit previews** — render Pi's returned unified patch instead of reconstructing previews from requested text.
+- **Pi host dependencies** — declare Pi core packages as peers, align development dependencies with Pi 0.82.0, and require `@earendil-works/pi-coding-agent` 0.82.x.
+
+### Fixed
+
+- Reject ambiguous overlapping edit matches, edits that overlap or do not match the original file, and malformed unified patches without partially mutating files or rendering misleading previews.
+- Preserve CRLF and BOM content during fuzzy edits.
+- Clean generated output before builds so removed modules cannot leak into release packages.
+
 ## [0.7.6] — 2026-07-21
 
 ### Added

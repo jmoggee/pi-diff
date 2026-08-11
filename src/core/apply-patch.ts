@@ -2,7 +2,7 @@
  * apply_patch — Multi-file patch engine.
  *
  * One call can add, update, delete, or move multiple files.
- * Uses replace.ts cascading replacer for oldText → newText matching.
+ * Uses replace.ts's conservative matcher for oldText → newText matching.
  */
 
 import * as fs from "node:fs";

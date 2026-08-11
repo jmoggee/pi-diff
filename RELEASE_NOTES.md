@@ -1,15 +1,19 @@
-# @heyhuynhgiabuu/pi-diff v0.7.6
+# @heyhuynhgiabuu/pi-diff v0.8.0
 
 ## Highlights
 
-- **Configurable tools** — use `disabledTools` in `pi-diff.json` to omit `write`, `edit`, or `apply_patch`; the first two fall back to Pi's built-ins.
-- **Safer patches** — `apply_patch` preflights changes, avoids unsafe source matches and clobbers, preserves modes and CRLF, and rolls back after commit failures.
-- **Clear failure state** — failed `apply_patch` output now uses the active theme's error foreground and background.
+- **Strict edit execution** — file mutation now runs through Pi SDK 0.82's matching, validation, serialization, abort, BOM, and EOL handling instead of pi-diff's permissive fuzzy writer.
+- **Accurate previews** — edit output renders the unified patch returned by Pi, so previews reflect the source that was actually matched and changed.
+- **Safer ambiguity handling** — overlapping or non-unique matches, edits that overlap or do not match the original file, and malformed patches fail closed.
+- **Host-provided Pi packages** — Pi core packages are peer dependencies, avoiding duplicate runtime copies while remaining development dependencies for local checks.
+- **Clean release builds** — generated output is removed before compilation so deleted modules cannot leak into packages.
+
+## Compatibility
+
+Requires `@earendil-works/pi-coding-agent` **0.82.x**. Edit requests that previously relied on ambiguous or permissive fuzzy matching may now be rejected; provide additional unchanged context to make `oldText` unique.
 
 ## Install
 
 ```bash
-pi install npm:@heyhuynhgiabuu/pi-diff@0.7.6
+pi install npm:@heyhuynhgiabuu/pi-diff@0.8.0
 ```
-
-Requires Pi **0.80.x** (`@earendil-works/pi-coding-agent` ^0.80.0).

@@ -73,7 +73,7 @@ describe("parseDiff", () => {
 
 describe("parsePatchFiles", () => {
 	it("parses a simple single-file unified diff", () => {
-		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1,3 +1,4 @@", " a", "-b", "+B", "+c"].join("\n");
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1,2 +1,3 @@", " a", "-b", "+B", "+c"].join("\n");
 
 		const result = parsePatchFiles(patch);
 		expect(result).toHaveLength(1);
@@ -93,7 +93,7 @@ describe("parsePatchFiles", () => {
 			"index abc..def 100644",
 			"--- a/test.ts",
 			"+++ b/test.ts",
-			"@@ -1,3 +1,3 @@",
+			"@@ -1,2 +1,2 @@",
 			" a",
 			"-b",
 			"+B",
@@ -107,7 +107,7 @@ describe("parsePatchFiles", () => {
 		const patch = [
 			"--- a/test.ts",
 			"+++ b/test.ts",
-			"@@ -10,6 +10,6 @@ function helloWorld() {",
+			"@@ -10,2 +10,2 @@ function helloWorld() {",
 			" const x = 1;",
 			"-const y = 2;",
 			"+const y = 3;",
@@ -142,6 +142,97 @@ describe("parsePatchFiles", () => {
 		expect(result[1].added).toBe(1);
 	});
 
+	it("preserves source lines that begin with patch marker characters", () => {
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "---old", "+++raw"].join("\n");
+
+		const result = parsePatchFiles(patch)[0];
+		expect(result.removed).toBe(1);
+		expect(result.added).toBe(1);
+		expect(result.lines.find((line) => line.type === "del")?.content).toBe("--old");
+		expect(result.lines.find((line) => line.type === "add")?.content).toBe("++raw");
+	});
+
+	it("preserves marker-prefixed source lines that include spaces", () => {
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "--- ", "+++ "].join("\n");
+		const result = parsePatchFiles(patch)[0];
+
+		expect(result.lines.find((line) => line.type === "del")?.content).toBe("-- ");
+		expect(result.lines.find((line) => line.type === "add")?.content).toBe("++ ");
+	});
+
+	it("does not create a phantom context line for a terminal patch newline", () => {
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "-old", "+new", ""].join("\n");
+		const result = parsePatchFiles(patch)[0];
+
+		expect(result.lines.filter((line) => line.type === "ctx" && line.content === "")).toHaveLength(0);
+	});
+
+	it("rejects a hunk containing an unrecognized line", () => {
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "-old", "+new", "corrupt"].join("\n");
+		expect(parsePatchFiles(patch)).toEqual([]);
+	});
+
+	it("rejects a blank line inside a hunk", () => {
+		const patch = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "", " old"].join("\n");
+		expect(parsePatchFiles(patch)).toEqual([]);
+	});
+
+	it("rejects malformed hunk and control headers", () => {
+		const malformedHunk = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "-old", "+new", "@@ malformed"].join("\n");
+		const malformedControl = ["--- a/test.ts", "+++ b/test.ts", "@@ -1 +1 @@", "-old", "+new", "\\ arbitrary"].join(
+			"\n",
+		);
+		const malformedPreamble = ["--- a/test.ts", "+++ b/test.ts", "@@ malformed", "@@ -1 +1 @@", "-old", "+new"].join(
+			"\n",
+		);
+
+		expect(parsePatchFiles(malformedHunk)).toEqual([]);
+		expect(parsePatchFiles(malformedControl)).toEqual([]);
+		expect(parsePatchFiles(malformedPreamble)).toEqual([]);
+	});
+
+	it("rejects a malformed second file instead of returning a partial diff", () => {
+		const patch = [
+			"Index: a.ts",
+			"--- a.ts",
+			"+++ a.ts",
+			"@@ -1 +1 @@",
+			"-a",
+			"+A",
+			"Index: b.ts",
+			"--- b.ts",
+			"+++ b.ts",
+			"@@ malformed",
+		].join("\n");
+		expect(parsePatchFiles(patch)).toEqual([]);
+	});
+
+	it("splits Index-style multi-file patches", () => {
+		const patch = [
+			"Index: a.ts",
+			"===================================================================",
+			"--- a.ts",
+			"+++ a.ts",
+			"@@ -1 +1 @@",
+			"-a",
+			"+A",
+			"Index: b.ts",
+			"===================================================================",
+			"--- b.ts",
+			"+++ b.ts",
+			"@@ -1 +1 @@",
+			"-b",
+			"+B",
+		].join("\n");
+		const result = parsePatchFiles(patch);
+		expect(result).toHaveLength(2);
+		expect(result.map((diff) => diff.added)).toEqual([1, 1]);
+	});
+
+	it("returns no diff for malformed input", () => {
+		expect(parsePatchFiles("not a unified patch")).toEqual([]);
+	});
+
 	it("returns empty array for empty input", () => {
 		expect(parsePatchFiles("")).toEqual([]);
 		expect(parsePatchFiles("   ")).toEqual([]);
@@ -167,7 +258,7 @@ describe("parsePatchFiles", () => {
 			" a",
 			"-b",
 			"+B",
-			"@@ -5,3 +5,4 @@",
+			"@@ -5,2 +5,3 @@",
 			" e",
 			"-f",
 			"+F",
@@ -180,7 +271,7 @@ describe("parsePatchFiles", () => {
 		expect(seps[0].hunkMeta?.oldStart).toBe(1);
 		expect(seps[0].hunkMeta?.oldLines).toBe(2);
 		expect(seps[1].hunkMeta?.oldStart).toBe(5);
-		expect(seps[1].hunkMeta?.oldLines).toBe(3);
+		expect(seps[1].hunkMeta?.oldLines).toBe(2);
 	});
 
 	it("ignores no-newline markers", () => {

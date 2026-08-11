@@ -26,7 +26,7 @@ A [pi](https://pi.dev) extension that replaces the default `write` and `edit` to
 - **LRU cache** — singleton Shiki highlighter with 192-entry cache for fast re-renders
 - **Large diff fallback** — gracefully degrades (skips highlighting, still shows diff structure) for files > 80k chars
 - **Fully customizable** — every color and threshold is overridable via environment variables
-- **Edit guard** — blocks `edit` tool calls whose `oldText` is no longer in the target file, forcing the model to re-read before retrying (prevents stale-`oldText` retry loops)
+- **Strict edit safety** — delegates matching, uniqueness, overlap checks, mutation queues, aborts, BOM, and EOL preservation to Pi's SDK edit tool
 
 ## Install
 
@@ -51,7 +51,7 @@ pi-diff wraps the built-in `write` and `edit` tools from the pi SDK, including s
 3. **After the write** — computes a structured diff between old and new content
 4. **Renders** the diff with syntax highlighting and word-level emphasis
 
-For `edit` calls, a `tool_call` handler runs **before** the tool executes and verifies that every `oldText` in the request is still present in the target file. If any `oldText` is missing, the call is blocked with a clear `VERIFY before EDIT` error, preventing the model from re-trying with stale text from a prior read.
+For `edit` calls, Pi's SDK performs matching, uniqueness and overlap validation, mutation queueing, and the file write. pi-diff adapts the SDK's returned unified patch into its syntax-highlighted renderer, so the preview reflects the actual matched source rather than the requested text.
 
 The rendering pipeline:
 
@@ -211,13 +211,11 @@ export DIFF_SPLIT_MIN_WIDTH=120
 ```
 src/
 ├── index.ts            # Extension entry point — wraps write/edit tools with diff rendering
-├── edit-guard.ts       # tool_call handler that blocks stale oldText in edit calls
-├── edit-guard.test.ts  # Unit tests for the edit guard
 ├── core/               # Pure data layer: diff parsing, conflict detection, line resolution
 │   ├── config.ts
 │   ├── conflicts.ts
 │   ├── diff.ts         # parseDiff, parsePatchFiles, resolveSepStyle
-│   ├── replace.ts      # safe in-place text replacement
+│   ├── replace.ts      # conservative apply_patch matcher and legacy helpers
 │   ├── resolve-lines.ts
 │   └── *.test.ts
 └── review/             # Shared diff-rendering primitives used by the main extension
@@ -287,8 +285,6 @@ pi install .
 pi-diff is a **pi extension** — a TypeScript file that exports a default function receiving the pi API:
 
 ```typescript
-import { registerEditGuard } from "./edit-guard.js";
-
 export default function piDiffExtension(pi: ExtensionAPI): void {
   // Wrap the built-in write/edit tools with diff rendering
   const origWrite = createWriteTool(cwd);
@@ -302,8 +298,6 @@ export default function piDiffExtension(pi: ExtensionAPI): void {
     renderResult: (...) => { /* render diff */ },
   });
 
-  // Block stale-oldText edit calls before they run
-  registerEditGuard(pi);
 }
 ```
 

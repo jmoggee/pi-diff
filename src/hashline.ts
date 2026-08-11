@@ -6,9 +6,8 @@
  * Collisions:  resolved with `:R{n}` suffix (perfect hashing per file).
  * Canonical:   CR stripped, trailing whitespace stripped before hashing.
  *
- * Design: edit-pro style (strict, no fuzzy fallback). The 6-strategy
- * oldString path in `core/replace.ts` remains as a fallback for models
- * that don't use the hashline format.
+ * Design: edit-pro style (strict, no fuzzy fallback). The conservative
+ * `replaceForPatch` path remains available for apply_patch mutations.
  */
 
 import xxhashWasm from "xxhash-wasm";
