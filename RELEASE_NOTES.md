@@ -1,10 +1,10 @@
 # @heyhuynhgiabuu/pi-diff v0.8.1
 
-## Changed
+## Fixed
 
-- **Host SDK peer bound** — accept any `@earendil-works/pi-coding-agent` version (was `>=0.82.0 <0.83.0`), so the package installs cleanly under current Pi releases including 0.84.x.
+- **Diff rendering and tool wrapping restored** — v0.8.0 declared the Pi SDK packages as peer dependencies, but pi's extension installer never installs peers, so the import failed inside `<project>/.pi/npm` installs and the extension silently degraded to plain built-in tools (one `[pi-diff] failed to load Pi SDK dependencies` line at startup). The Pi SDK packages are regular dependencies again, now at **0.84.2** to match current pi.
 
-No other behavior changes; the strict edit execution semantics introduced in v0.8.0 are unchanged.
+No rendering behavior changes otherwise: syntax-highlighted, word-level split/unified previews work exactly as before v0.8.0.
 
 ## Install
 

@@ -4,11 +4,11 @@ All notable changes to `@heyhuynhgiabuu/pi-diff` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.8.1] — 2026-08-14
+## [0.8.1] — 2026-08-23
 
-### Changed
+### Fixed
 
-- **Host SDK peer bound** — accept any `@earendil-works/pi-coding-agent` version (was `>=0.82.0 <0.83.0`), so the package installs cleanly under current Pi releases including 0.84.x.
+- **Extension silently disabled under pi's installer** — v0.8.0 declared the Pi SDK packages as peer dependencies (adopted from PR #3), but pi's extension installer never installs peers, so `import("@earendil-works/pi-coding-agent")` failed inside `<project>/.pi/npm` installs and the whole extension degraded to plain built-in tools: no wrapping, no Shiki previews. Pi SDK packages are direct dependencies again, upgraded from 0.82 to **0.84.2** to match current pi.
 
 ## [0.8.0] — 2026-08-11
 
