@@ -27,10 +27,10 @@ describe("tool header names", () => {
 		);
 	});
 
-	it("puts a clickable filename above a diff", () => {
+	it("puts a clickable edit icon in the top-right corner of a diff", () => {
 		const theme = { fg: (_name: string, text: string) => text };
 		const corner = __testing.formatDiffOpenCorner(theme, "/work/project", "src/index.ts", 42, 20);
-		assert.match(corner, /src\/index.ts/);
+		assert.match(corner, /󰏫/);
 		assert.match(corner, /pi-diff:\/\/open\?path=%2Fwork%2Fproject%2Fsrc%2Findex.ts&line=42/);
 	});
 

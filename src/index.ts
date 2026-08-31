@@ -103,9 +103,10 @@ function formatDiffOpenCorner(
 	cwd: string,
 	filePath: string,
 	line: number,
-	_width: number,
+	width: number,
 ): string {
-	return hyperlink(theme.fg("toolTitle", filePath), diffOpenUri(cwd, filePath, line));
+	const link = formatDiffOpenLink(theme, cwd, filePath, line);
+	return link ? `${" ".repeat(Math.max(0, width - strip(link).length))}${link}` : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,7 +1600,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 					MAX_PREVIEW_LINES,
 					theme,
 					ctx,
-					{ previewBottomPad: 1, compactGutter: true, filePath: change.path },
+					{ previewBottomPad: 1, compactGutter: true },
 				);
 
 				return true;
@@ -1713,13 +1714,9 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 		colors: DiffColors,
 		width: number,
 		bodyLeftPad = DIFF_BODY_LEFT_PAD,
-		filePath?: string,
 	): Promise<string> {
 		const bodyWidth = Math.max(1, width - bodyLeftPad);
-		const lineLink = filePath
-			? (line: number, text: string) => hyperlink(text, diffOpenUri(cwd, filePath, line))
-			: undefined;
-		return padDiffBody(await renderSharedSplit(diff, language, maxLines, colors, bodyWidth, { lineLink }), bodyLeftPad);
+		return padDiffBody(await renderSharedSplit(diff, language, maxLines, colors, bodyWidth), bodyLeftPad);
 	}
 
 	async function renderPaddedCompactDiff(
@@ -1729,14 +1726,10 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 		colors: DiffColors,
 		width: number,
 		bodyLeftPad = DIFF_BODY_LEFT_PAD,
-		filePath?: string,
 	): Promise<string> {
 		const bodyWidth = Math.max(1, width - bodyLeftPad);
-		const lineLink = filePath
-			? (line: number, text: string) => hyperlink(text, diffOpenUri(cwd, filePath, line))
-			: undefined;
 		return padDiffBody(
-			await renderSharedSplit(diff, language, maxLines, colors, bodyWidth, { compactGutter: true, lineLink }),
+			await renderSharedSplit(diff, language, maxLines, colors, bodyWidth, { compactGutter: true }),
 			bodyLeftPad,
 		);
 	}
@@ -1774,7 +1767,6 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			omitHeader?: boolean;
 			previewBottomPad?: number;
 			compactGutter?: boolean;
-			filePath?: string;
 		},
 	): void {
 		clearToolHeaderBg(text);
@@ -1811,8 +1803,8 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 				joinHeaderBody(
 					width,
 					await (frame?.compactGutter
-						? renderPaddedCompactDiff(diff, language, maxLines, colors, width, frame?.bodyLeftPad, frame?.filePath)
-						: renderPaddedDiff(diff, language, maxLines, colors, width, frame?.bodyLeftPad, frame?.filePath)),
+						? renderPaddedCompactDiff(diff, language, maxLines, colors, width, frame?.bodyLeftPad)
+						: renderPaddedDiff(diff, language, maxLines, colors, width, frame?.bodyLeftPad)),
 				),
 		};
 	}
@@ -1998,7 +1990,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 					MAX_RENDER_LINES,
 					theme,
 					ctx,
-					{ previewBottomPad: 1, compactGutter: true, filePath: d.filePath },
+					{ previewBottomPad: 1, compactGutter: true },
 				);
 				return text;
 			}
@@ -2237,7 +2229,6 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 						previewBottomPad: EDIT_DIFF_RESULT_FRAME.previewBottomPad,
 						compactGutter: true,
 						bodyLeftPad: EDIT_DIFF_RESULT_FRAME.bodyLeftPad,
-						filePath: d.filePath,
 					},
 				);
 				return text;
