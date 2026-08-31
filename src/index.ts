@@ -23,9 +23,9 @@
 
 import { constants, existsSync, readFileSync } from "node:fs";
 import { access as accessFile, readFile, writeFile } from "node:fs/promises";
-import { extname, relative } from "node:path";
+import { extname, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import { type Component, getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
 import * as Diff from "diff";
 import { type ApplyPatchChange, executeApplyPatch, formatApplyPatchResult } from "./core/apply-patch.js";
@@ -74,6 +74,28 @@ function isToolResultError(result: { isError?: boolean }, context: { isError?: b
 
 function formatToolHeaderPath(theme: Pick<PiTheme, "fg">, filePath: string): string {
 	return theme.fg("toolTitle", filePath);
+}
+
+function diffOpenUri(cwd: string, filePath: string, line: number): string {
+	const url = new URL("pi-diff://open");
+	url.searchParams.set("path", resolve(cwd, filePath));
+	url.searchParams.set("line", String(Math.max(1, line)));
+	return url.href;
+}
+
+function formatDiffOpenLink(theme: Pick<PiTheme, "fg">, cwd: string, filePath: string, line?: number): string {
+	if (!filePath || !line) return "";
+	const icon = "󰏫";
+	return theme.fg("accent", getCapabilities().hyperlinks ? hyperlink(icon, diffOpenUri(cwd, filePath, line)) : icon);
+}
+
+function diffOpenLine(diff: ParsedDiff): number | undefined {
+	return (
+		diff.lines.find((line) => line.type === "add" && line.newNum !== null)?.newNum ??
+		diff.lines.find((line) => line.newNum !== null)?.newNum ??
+		diff.lines.find((line) => line.oldNum !== null)?.oldNum ??
+		undefined
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -1354,6 +1376,8 @@ async function renderSplit(
 
 export const __testing = {
 	computeHunkBlocks,
+	diffOpenLine,
+	diffOpenUri,
 	formatToolHeaderName,
 	formatToolHeaderPath,
 	isToolResultError,
@@ -1391,7 +1415,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 
 	const editHeaderStatsByCallId = new Map<
 		string,
-		{ edits: number; diffLines: number; added: number; removed: number }
+		{ edits: number; diffLines: number; added: number; removed: number; line?: number }
 	>();
 
 	function stashEditHeaderStats(
@@ -1400,16 +1424,17 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 		diffLines: number,
 		added: number,
 		removed: number,
+		line?: number,
 	): void {
 		if (!toolCallId) return;
-		editHeaderStatsByCallId.set(toolCallId, { edits, diffLines, added, removed });
+		editHeaderStatsByCallId.set(toolCallId, { edits, diffLines, added, removed, line });
 	}
 
-	const writeHeaderStatsByCallId = new Map<string, { added: number; removed: number }>();
+	const writeHeaderStatsByCallId = new Map<string, { added: number; removed: number; line?: number }>();
 
-	function stashWriteHeaderStats(toolCallId: string, added: number, removed: number): void {
+	function stashWriteHeaderStats(toolCallId: string, added: number, removed: number, line?: number): void {
 		if (!toolCallId) return;
-		writeHeaderStatsByCallId.set(toolCallId, { added, removed });
+		writeHeaderStatsByCallId.set(toolCallId, { added, removed, line });
 	}
 
 	const cwd = process.cwd();
@@ -1449,17 +1474,19 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 		suffix?: string;
 		label?: string;
 		filePath?: string;
+		fileLine?: number;
 		theme?: any;
 		meta?: string;
 	};
 
 	function formatToolFrameHeaderText(opts: Omit<ToolFrameHeaderOpts, "width">): string {
-		const { topPad = 0, bottomPad = 0, headerLeftPad, suffix = "", label, filePath, theme, meta } = opts;
+		const { topPad = 0, bottomPad = 0, headerLeftPad, suffix = "", label, filePath, fileLine, theme, meta } = opts;
 		const leftPad = " ".repeat(headerLeftPad ?? TOOL_HEADER_LEFT_PAD);
+		const openLink = formatDiffOpenLink(theme, cwd, filePath ?? "", fileLine);
 		const content =
 			meta !== undefined && meta !== null
 				? `${leftPad}${meta}${suffix}`
-				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${formatToolHeaderPath(theme, sp(filePath ?? ""))}${suffix}`;
+				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${formatToolHeaderPath(theme, sp(filePath ?? ""))}${openLink ? ` ${openLink}` : ""}${suffix}`;
 		return `${"\n".repeat(topPad)}${content}${"\n".repeat(bottomPad)}`;
 	}
 
@@ -1847,7 +1874,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 				const useFull = !!(params as any)._expandGaps;
 				const diff = parseDiff(old, content, useFull ? undefined : 3);
 				const lg = detectDiffLanguage(fp);
-				stashWriteHeaderStats(tid, diff.added, diff.removed);
+				stashWriteHeaderStats(tid, diff.added, diff.removed, diffOpenLine(diff));
 				(result as Record<string, unknown>).details = {
 					_type: "diff",
 					summary: summarize(diff.added, diff.removed),
@@ -1879,17 +1906,28 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			resolveDiffColors(theme);
 			const w = termW();
 			const stats = writeCallStatsSuffix(ctx.toolCallId, theme);
+			const fileLine = writeHeaderStatsByCallId.get(ctx.toolCallId)?.line ?? (isNew ? 1 : undefined);
 
 			if (args?.content && !ctx.argsComplete) {
 				const n = String(args.content).split("\n").length;
 				const suffix = `${TOOL_RESULT_INDENT}${theme.fg("muted", `(${n} lines…)`)}${stats ? ` ${stats.trimStart()}` : ""}`;
 				setToolHeaderBg(text);
-				text.setText(formatToolFrameHeaderText({ label, filePath: fp, theme, suffix, topPad: 0, bottomPad: 1 }));
+				text.setText(
+					formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix, topPad: 0, bottomPad: 1 }),
+				);
 				return text;
 			}
 
 			if (args?.content && ctx.argsComplete && isNew) {
-				const title = formatToolFrameHeader({ label, filePath: fp, theme, width: w, topPad: 0, bottomPad: 1 });
+				const title = formatToolFrameHeader({
+					label,
+					filePath: fp,
+					fileLine,
+					theme,
+					width: w,
+					topPad: 0,
+					bottomPad: 1,
+				});
 				const previewKey = `create:${sharedThemeCacheKey(theme)}:${fp}:${String(args.content).length}`;
 				if (ctx.state._previewKey !== previewKey) {
 					ctx.state._previewKey = previewKey;
@@ -1909,7 +1947,9 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			}
 
 			setToolHeaderBg(text);
-			text.setText(formatToolFrameHeaderText({ label, filePath: fp, theme, suffix: stats, topPad: 0, bottomPad: 1 }));
+			text.setText(
+				formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix: stats, topPad: 0, bottomPad: 1 }),
+			);
 			return text;
 		},
 
@@ -2086,7 +2126,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			if (!diff || (diff.added === 0 && diff.removed === 0)) return result;
 
 			const editCount = operations.length || (Array.isArray(params?.edits) ? params.edits.length : 1);
-			stashEditHeaderStats(tid, editCount, diff.lines.length, diff.added, diff.removed);
+			stashEditHeaderStats(tid, editCount, diff.lines.length, diff.added, diff.removed, diffOpenLine(diff));
 			const details = {
 				...result.details,
 				_type: editCount > 1 ? "multiEditInfo" : "editInfo",
@@ -2110,12 +2150,14 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			resolvePreviewDiffColors(theme);
 
 			const stats = editCallStatsSuffix(ctx.toolCallId, theme);
+			const fileLine = editHeaderStatsByCallId.get(ctx.toolCallId)?.line;
 			if (ctx.argsComplete && operations.length > 0) {
 				setToolHeaderBg(text);
 				text.setText(
 					formatToolFrameHeaderText({
 						label: "edit",
 						filePath: fp,
+						fileLine,
 						theme,
 						suffix: stats,
 						topPad: EDIT_DIFF_RESULT_FRAME.topPad,
@@ -2128,6 +2170,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 					formatToolFrameHeader({
 						label: "edit",
 						filePath: fp,
+						fileLine,
 						theme,
 						width: termW(),
 						suffix: stats,
