@@ -53,6 +53,7 @@ interface DiffColors {
 
 interface DiffRenderOptions {
 	compactGutter?: boolean;
+	lineLink?: (line: number, text: string) => string;
 }
 
 const DIFF_PRESETS: Record<string, DiffPreset> = {
@@ -647,10 +648,11 @@ function wrapAnsi(content: string, width: number, maxRows: number, fillBg = ""):
 	return rows;
 }
 
-function lnum(value: number | null, width: number, fg = FG_LNUM): string {
+function lnum(value: number | null, width: number, fg = FG_LNUM, link?: DiffRenderOptions["lineLink"]): string {
 	if (value === null) return " ".repeat(width);
 	const text = String(value);
-	return `${fg}${" ".repeat(Math.max(0, width - text.length))}${text}${RST}`;
+	const rendered = `${fg}${" ".repeat(Math.max(0, width - text.length))}${text}${RST}`;
+	return link?.(value, rendered) ?? rendered;
 }
 
 function rule(width: number): string {
@@ -850,7 +852,7 @@ export async function renderUnified(
 		const borderFg = sign === "-" ? colors.fgDel : sign === "+" ? colors.fgAdd : "";
 		const border = compactGutter ? "" : borderFg ? `${borderFg}${getBorderBar()}${RST}` : `${BG_BASE} `;
 		const numFg = borderFg || FG_LNUM;
-		const gutter = `${border}${gutterBg}${lnum(number, numberWidth, numFg)}${gutterBg} ${signFg}${sign}${gutterBg} ${RST}`;
+		const gutter = `${border}${gutterBg}${lnum(number, numberWidth, numFg, options.lineLink)}${gutterBg} ${signFg}${sign}${gutterBg} ${RST}`;
 		const continuationGutter = `${border}${gutterBg}${" ".repeat(numberWidth + 3)}${RST}`;
 		const rows = wrapAnsi(tabs(body), codeWidth, adaptiveWrapRows(renderWidth), bodyBg);
 		output.push(`${gutter}${rows[0]}${RST}`);
@@ -1044,7 +1046,7 @@ export async function renderSplit(
 		const numFg = borderFg || FG_LNUM;
 		let body = isDeletion || isAddition ? injectBg(highlight, [], codeBg, codeBg) : `${BG_BASE}${DIM}${highlight}`;
 		if (ranges && ranges.length > 0) body = injectBg(highlight, ranges, codeBg, isDeletion ? BG_DEL_W : BG_ADD_W);
-		const gutter = `${border}${gutterBg}${lnum(number, numberWidth, numFg)}${gutterBg} ${signFg}${sign}${gutterBg} ${RST}`;
+		const gutter = `${border}${gutterBg}${lnum(number, numberWidth, numFg, options.lineLink)}${gutterBg} ${signFg}${sign}${gutterBg} ${RST}`;
 		const continuation = `${border}${gutterBg}${" ".repeat(numberWidth + 3)}${RST}`;
 		return {
 			gutter,
