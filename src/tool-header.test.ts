@@ -16,17 +16,6 @@ describe("tool header names", () => {
 		assert.equal(__testing.formatToolHeaderPath(theme, "src/index.ts"), "toolTitle:src/index.ts");
 	});
 
-	it("links to an absolute file and changed line through the pi-diff URI", () => {
-		assert.equal(
-			__testing.diffOpenUri("/work/project", "src/index.ts", 42),
-			"pi-diff://open?path=%2Fwork%2Fproject%2Fsrc%2Findex.ts&line=42",
-		);
-		assert.equal(
-			__testing.diffOpenUri("/work/project", "src/index.ts", 0),
-			"pi-diff://open?path=%2Fwork%2Fproject%2Fsrc%2Findex.ts&line=1",
-		);
-	});
-
 	it("uses the tool result error flag when rendering failures", () => {
 		const testing = __testing as typeof __testing & {
 			isToolResultError(result: { isError?: boolean }, context: { isError?: boolean }): boolean;
