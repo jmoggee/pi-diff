@@ -25,7 +25,7 @@ import { constants, existsSync, readFileSync } from "node:fs";
 import { access as accessFile, readFile, writeFile } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Component, hyperlink } from "@earendil-works/pi-tui";
+import { type Component, getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
 import * as Diff from "diff";
 import { type ApplyPatchChange, executeApplyPatch, formatApplyPatchResult } from "./core/apply-patch.js";
@@ -86,7 +86,7 @@ function diffOpenUri(cwd: string, filePath: string, line: number): string {
 function formatDiffOpenLink(theme: Pick<PiTheme, "fg">, cwd: string, filePath: string, line?: number): string {
 	if (!filePath || !line) return "";
 	const icon = "󰏫";
-	return theme.fg("accent", hyperlink(icon, diffOpenUri(cwd, filePath, line)));
+	return theme.fg("accent", getCapabilities().hyperlinks ? hyperlink(icon, diffOpenUri(cwd, filePath, line)) : icon);
 }
 
 function diffOpenLine(diff: ParsedDiff): number | undefined {
