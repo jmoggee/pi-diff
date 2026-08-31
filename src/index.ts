@@ -83,6 +83,12 @@ function diffOpenUri(cwd: string, filePath: string, line: number): string {
 	return url.href;
 }
 
+function formatDiffOpenLink(theme: Pick<PiTheme, "fg">, cwd: string, filePath: string, line?: number): string {
+	if (!filePath || !line) return "";
+	const icon = "󰏫";
+	return theme.fg("accent", hyperlink(icon, diffOpenUri(cwd, filePath, line)));
+}
+
 function diffOpenLine(diff: ParsedDiff): number | undefined {
 	return (
 		diff.lines.find((line) => line.type === "add" && line.newNum !== null)?.newNum ??
@@ -1487,12 +1493,11 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 	function formatToolFrameHeaderText(opts: Omit<ToolFrameHeaderOpts, "width">): string {
 		const { topPad = 0, bottomPad = 0, headerLeftPad, suffix = "", label, filePath, fileLine, theme, meta } = opts;
 		const leftPad = " ".repeat(headerLeftPad ?? TOOL_HEADER_LEFT_PAD);
-		const path = formatToolHeaderPath(theme, sp(filePath ?? ""));
-		const linkedPath = filePath && fileLine ? hyperlink(path, diffOpenUri(cwd, filePath, fileLine)) : path;
+		const openLink = formatDiffOpenLink(theme, cwd, filePath ?? "", fileLine);
 		const content =
 			meta !== undefined && meta !== null
 				? `${leftPad}${meta}${suffix}`
-				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${linkedPath}${suffix}`;
+				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${formatToolHeaderPath(theme, sp(filePath ?? ""))}${openLink ? ` ${openLink}` : ""}${suffix}`;
 		return `${"\n".repeat(topPad)}${content}${"\n".repeat(bottomPad)}`;
 	}
 
