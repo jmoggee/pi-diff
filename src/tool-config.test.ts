@@ -12,11 +12,13 @@ describe("disabledTools configuration", () => {
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-diff-tools-"));
 		cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+		vi.stubEnv("HERDR_WORKSPACE_ID", "w-test");
 		invalidatePiDiffConfig();
 	});
 
 	afterEach(() => {
 		cwdSpy.mockRestore();
+		vi.unstubAllEnvs();
 		invalidatePiDiffConfig();
 		rmSync(tempDir, { recursive: true, force: true });
 	});
@@ -41,6 +43,7 @@ describe("disabledTools configuration", () => {
 				name: string;
 				execute: (...args: any[]) => Promise<any>;
 				prepareArguments?: (input: any) => any;
+				renderCall?: (...args: any[]) => { render(width: number): string[] };
 			}> = [];
 			await diffRendererExtension({
 				on: () => {},
@@ -48,6 +51,7 @@ describe("disabledTools configuration", () => {
 					name: string;
 					execute: (...args: any[]) => Promise<any>;
 					prepareArguments?: (input: any) => any;
+					renderCall?: (...args: any[]) => { render(width: number): string[] };
 				}) => tools.push(tool),
 			} as never);
 			const edit = tools.find((tool) => tool.name === "edit");
@@ -149,6 +153,35 @@ describe("disabledTools configuration", () => {
 			);
 			const removed = result.details?.diff?.lines.find((line: { type: string }) => line.type === "del");
 			expect(removed?.content).toBe("const x = 1;  ");
+		});
+
+		it("renders the edited filename as an OSC 8 link to the changed line", async () => {
+			const file = join(tempDir, "linked.ts");
+			writeFileSync(file, "const value = 1;\n");
+			const edit = await registerEditTool();
+			const args = { path: file, edits: [{ oldText: "1", newText: "2" }] };
+
+			await edit.execute("link-test", args, undefined, undefined, undefined);
+			const theme = {
+				fg: (_name: string, text: string) => text,
+				bg: (_name: string, text: string) => text,
+				bold: (text: string) => text,
+				getFgAnsi: () => "",
+				getBgAnsi: () => "",
+			};
+			const header = edit
+				.renderCall?.(args, theme, {
+					toolCallId: "link-test",
+					argsComplete: true,
+					lastComponent: undefined,
+				})
+				.render(200)
+				.join("\n");
+
+			expect(header).toContain("linked.ts");
+			expect(header).toContain(
+				`\u001b]8;;pi-diff://open?path=${encodeURIComponent(file)}&line=1&workspace=w-test\u001b\\`,
+			);
 		});
 
 		it("accepts legacy oldText and newText fields", async () => {
