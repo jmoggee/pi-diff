@@ -33,6 +33,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "npm run clean && tsc",
+		"prepare": "npm run build",
 		"clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check src/",
