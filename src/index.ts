@@ -98,6 +98,17 @@ function diffOpenLine(diff: ParsedDiff): number | undefined {
 	);
 }
 
+function formatDiffOpenCorner(
+	theme: Pick<PiTheme, "fg">,
+	cwd: string,
+	filePath: string,
+	line: number,
+	width: number,
+): string {
+	const link = formatDiffOpenLink(theme, cwd, filePath, line);
+	return link ? `${" ".repeat(Math.max(0, width - strip(link).length))}${link}` : "";
+}
+
 // ---------------------------------------------------------------------------
 // Diff Theme System — presets, auto-derive, and per-color overrides
 //
@@ -1376,6 +1387,7 @@ async function renderSplit(
 
 export const __testing = {
 	computeHunkBlocks,
+	formatDiffOpenCorner,
 	diffOpenLine,
 	diffOpenUri,
 	formatToolHeaderName,
@@ -1969,11 +1981,17 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			}
 			const d = result.details;
 			if (d?._type === "diff") {
-				setDiffPreviewTask(text, "wd", "", d.diff, d.language, MAX_RENDER_LINES, theme, ctx, {
-					omitHeader: true,
-					previewBottomPad: 1,
-					compactGutter: true,
-				});
+				setDiffPreviewTask(
+					text,
+					"wd",
+					(width: number) => formatDiffOpenCorner(theme, cwd, d.filePath, diffOpenLine(d.diff) ?? 1, width),
+					d.diff,
+					d.language,
+					MAX_RENDER_LINES,
+					theme,
+					ctx,
+					{ previewBottomPad: 1, compactGutter: true },
+				);
 				return text;
 			}
 			if (d?._type === "noChange") {
@@ -2198,24 +2216,42 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 			}
 			const d = result.details;
 			if (d?._type === "editInfo" && d.diff) {
-				setDiffPreviewTask(text, "ed", "", d.diff, d.language, MAX_PREVIEW_LINES, theme, ctx, {
-					omitHeader: true,
-					previewBottomPad: EDIT_DIFF_RESULT_FRAME.previewBottomPad,
-					compactGutter: true,
-					bodyLeftPad: EDIT_DIFF_RESULT_FRAME.bodyLeftPad,
-				});
+				setDiffPreviewTask(
+					text,
+					"ed",
+					(width: number) => formatDiffOpenCorner(theme, cwd, d.filePath, diffOpenLine(d.diff) ?? 1, width),
+					d.diff,
+					d.language,
+					MAX_PREVIEW_LINES,
+					theme,
+					ctx,
+					{
+						previewBottomPad: EDIT_DIFF_RESULT_FRAME.previewBottomPad,
+						compactGutter: true,
+						bodyLeftPad: EDIT_DIFF_RESULT_FRAME.bodyLeftPad,
+					},
+				);
 				return text;
 			}
 
 			if (d?._type === "multiEditInfo") {
 				const { editCount, diffLineCount, diff, language } = d;
 				if (diff) {
-					setDiffPreviewTask(text, "me", "", diff, language, MAX_PREVIEW_LINES, theme, ctx, {
-						omitHeader: true,
-						previewBottomPad: EDIT_DIFF_RESULT_FRAME.previewBottomPad,
-						compactGutter: true,
-						bodyLeftPad: EDIT_DIFF_RESULT_FRAME.bodyLeftPad,
-					});
+					setDiffPreviewTask(
+						text,
+						"me",
+						(width: number) => formatDiffOpenCorner(theme, cwd, d.filePath, diffOpenLine(diff) ?? 1, width),
+						diff,
+						language,
+						MAX_PREVIEW_LINES,
+						theme,
+						ctx,
+						{
+							previewBottomPad: EDIT_DIFF_RESULT_FRAME.previewBottomPad,
+							compactGutter: true,
+							bodyLeftPad: EDIT_DIFF_RESULT_FRAME.bodyLeftPad,
+						},
+					);
 					return text;
 				}
 				const meta = `${editCount} edits${diffLineCountLabel(diffLineCount, theme)}`;

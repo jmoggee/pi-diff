@@ -27,6 +27,11 @@ describe("tool header names", () => {
 		);
 	});
 
+	it("puts the edit icon in the top-right corner of a diff", () => {
+		const theme = { fg: (_name: string, text: string) => text };
+		assert.match(__testing.formatDiffOpenCorner(theme, "/work/project", "src/index.ts", 42, 20), /󰏫/);
+	});
+
 	it("uses the tool result error flag when rendering failures", () => {
 		const testing = __testing as typeof __testing & {
 			isToolResultError(result: { isError?: boolean }, context: { isError?: boolean }): boolean;
