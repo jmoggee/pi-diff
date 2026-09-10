@@ -106,7 +106,6 @@ const EscapeNormalizedReplacer = function* (content, find) {
         const block = contentLines.slice(i, i + findLines.length).join("\n");
         if (block === unescaped || block.trim() === unescaped.trim()) {
             yield block;
-            return;
         }
     }
 };
@@ -495,17 +494,30 @@ export function replace(content, oldString, newString, options) {
     // No match found
     return { content, changed: false, strategy: "none", count: 0 };
 }
+/** Count exact occurrences of `oldText` (overlaps included). */
+export function countPatchOccurrences(content, oldText) {
+    if (oldText.length === 0)
+        return 0;
+    let count = 0;
+    let position = 0;
+    while (true) {
+        const index = content.indexOf(oldText, position);
+        if (index === -1)
+            return count;
+        count++;
+        position = index + 1;
+    }
+}
 /**
  * Conservative matcher for source mutations: exact text first, then one
  * unambiguous block whose only difference is a uniform indentation shift.
  * Unlike `replace`, it never guesses from similar content or normalizes
  * whitespace inside source tokens.
  */
-export function replaceForPatch(content, oldText, newText) {
-    if (oldText.length === 0 || oldText === newText) {
-        return { content, changed: false, strategy: "none", count: 0 };
-    }
-    const exactCount = countOccurrences(content, oldText);
+export function findPatchReplacement(content, oldText, newText) {
+    if (oldText.length === 0 || oldText === newText)
+        return undefined;
+    const exactCount = countPatchOccurrences(content, oldText);
     if (exactCount === 1) {
         const index = content.indexOf(oldText);
         const lineStart = content.lastIndexOf("\n", index - 1) + 1;
@@ -514,22 +526,17 @@ export function replaceForPatch(content, oldText, newText) {
         const newIndent = leadingWhitespace(newText);
         if (((oldText.includes("\n") || newText.includes("\n")) && index !== lineStart) ||
             (index !== lineStart && omittedIndent.trim() === "" && oldIndent.length > 0 && oldIndent !== newIndent)) {
-            return { content, changed: false, strategy: "none", count: 0 };
+            return undefined;
         }
-        return {
-            content: content.slice(0, index) + newText + content.slice(index + oldText.length),
-            changed: true,
-            strategy: "simple",
-            count: 1,
-        };
+        return { start: index, end: index + oldText.length, replacement: newText, strategy: "simple" };
     }
     if (exactCount > 1)
-        return { content, changed: false, strategy: "none", count: 0 };
+        return undefined;
     const oldLines = oldText.split("\n");
     if (oldLines.length > 1 && oldLines.at(-1) === "")
         oldLines.pop();
     if (oldLines.length === 0)
-        return { content, changed: false, strategy: "none", count: 0 };
+        return undefined;
     const contentLines = content.split("\n");
     const candidates = [];
     let start = 0;
@@ -541,21 +548,112 @@ export function replaceForPatch(content, oldText, newText) {
         }
         const indent = getIndentAdjustment(oldLines, actualLines);
         const includesTrailingNewline = oldText.endsWith("\n") && i + oldLines.length < contentLines.length;
-        if (indent)
+        if (indent) {
             candidates.push({ start, text: `${actualLines.join("\n")}${includesTrailingNewline ? "\n" : ""}`, indent });
+        }
         start += contentLines[i].length + 1;
     }
-    if (candidates.length !== 1)
+    if (candidates.length === 1) {
+        const candidate = candidates[0];
+        const adjustedNewText = applyIndentAdjustment(newText, candidate.indent, candidate.text.includes("\r\n") || candidate.text.endsWith("\r") ? "\r\n" : "\n");
+        if (adjustedNewText !== undefined) {
+            const replacement = candidate.text.endsWith("\r") && !adjustedNewText.endsWith("\r") ? `${adjustedNewText}\r` : adjustedNewText;
+            return {
+                start: candidate.start,
+                end: candidate.start + candidate.text.length,
+                replacement,
+                strategy: "indent-adjusted",
+            };
+        }
+    }
+    return findUniqueFuzzyReplacement(content, oldText, newText);
+}
+/**
+ * Normalize drift that does not change source meaning: trailing whitespace
+ * and Unicode quotes/dashes/spaces. Leading indentation is preserved.
+ */
+function normalizeForPatchMatch(text) {
+    return text
+        .normalize("NFKC")
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+$/, ""))
+        .join("\n")
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+        .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+        .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, "-")
+        .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, " ");
+}
+/** Matches blocks that differ only by trailing whitespace or Unicode punctuation/spacing drift. */
+const UnicodeNormalizedReplacer = function* (content, find) {
+    const findLines = find.split("\n");
+    if (findLines.length > 1 && findLines[findLines.length - 1] === "")
+        findLines.pop();
+    if (findLines.length === 0)
+        return;
+    const normalizedFindLines = findLines.map(normalizeForPatchMatch);
+    const contentLines = content.split("\n");
+    if (findLines.length > contentLines.length)
+        return;
+    for (let i = 0; i <= contentLines.length - findLines.length; i++) {
+        const block = contentLines.slice(i, i + findLines.length);
+        if (block.every((line, j) => normalizeForPatchMatch(line) === normalizedFindLines[j])) {
+            yield block.join("\n");
+        }
+    }
+};
+/** Source-safe fallbacks: tolerate escapes and Unicode/trailing-whitespace drift only. */
+const PATCH_FALLBACK_STRATEGIES = [
+    { name: "escape-normalized", replacer: EscapeNormalizedReplacer },
+    { name: "unicode-normalized", replacer: UnicodeNormalizedReplacer },
+];
+/** Locate one fuzzy match, requiring exactly one candidate that occurs exactly once. */
+function findUniqueFuzzyReplacement(content, oldText, newText) {
+    for (const { name, replacer } of PATCH_FALLBACK_STRATEGIES) {
+        const candidates = [...replacer(content, oldText)];
+        if (candidates.length !== 1)
+            continue;
+        const candidate = candidates[0];
+        if (countPatchOccurrences(content, candidate) !== 1)
+            continue;
+        const start = content.indexOf(candidate);
+        if (start === -1)
+            continue;
+        let end = start + candidate.length;
+        // Line-based strategies drop the trailing newline; restore it so newText does not double it.
+        if (oldText.endsWith("\n") && !candidate.endsWith("\n") && content[end] === "\n")
+            end += 1;
+        const replacement = adjustReplacementIndent(oldText, content.slice(start, end), newText);
+        if (replacement === undefined)
+            continue;
+        return { start, end, replacement, strategy: name };
+    }
+    return undefined;
+}
+/** Align newText to a uniform indentation shift; undefined when the shift is non-uniform. */
+function adjustReplacementIndent(oldText, candidate, newText) {
+    const expected = oldText.split("\n");
+    if (expected.length > 1 && expected.at(-1) === "")
+        expected.pop();
+    const actual = candidate.split("\n");
+    if (actual.length > 1 && actual.at(-1) === "")
+        actual.pop();
+    if (expected.length !== actual.length)
+        return newText;
+    const adjustment = getIndentAdjustment(expected, actual);
+    if (!adjustment)
+        return undefined;
+    if (adjustment.kind === "none")
+        return newText;
+    return applyIndentAdjustment(newText, adjustment, candidate.includes("\r\n") ? "\r\n" : "\n");
+}
+export function replaceForPatch(content, oldText, newText) {
+    const match = findPatchReplacement(content, oldText, newText);
+    if (!match)
         return { content, changed: false, strategy: "none", count: 0 };
-    const candidate = candidates[0];
-    const adjustedNewText = applyIndentAdjustment(newText, candidate.indent, candidate.text.includes("\r\n") || candidate.text.endsWith("\r") ? "\r\n" : "\n");
-    if (adjustedNewText === undefined)
-        return { content, changed: false, strategy: "none", count: 0 };
-    const replacement = candidate.text.endsWith("\r") && !adjustedNewText.endsWith("\r") ? `${adjustedNewText}\r` : adjustedNewText;
     return {
-        content: content.slice(0, candidate.start) + replacement + content.slice(candidate.start + candidate.text.length),
+        content: content.slice(0, match.start) + match.replacement + content.slice(match.end),
         changed: true,
-        strategy: "indent-adjusted",
+        strategy: match.strategy,
         count: 1,
     };
 }
