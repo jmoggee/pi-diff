@@ -23,6 +23,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { codeToANSI } from "@shikijs/cli";
 import { computeHunkBlocks, getSepStyle, type ParsedDiff, parseDiff, parsePatchFiles, resolveSepStyle } from "./core/diff.js";
+import { lang as detectDiffLanguage } from "./review/hunk-preview.js";
 type BundledLanguage = Parameters<typeof codeToANSI>[1];
 /** Simplified Pi theme — only methods pi-diff actually calls. */
 interface PiTheme {
@@ -48,15 +49,18 @@ interface DiffColors {
     fgCtx: string;
 }
 declare function normalizeShikiContrast(ansi: string): string;
+declare function lang(fp: string): BundledLanguage | undefined;
 declare function renderUnified(diff: ParsedDiff, language: BundledLanguage | undefined, max?: number, dc?: DiffColors): Promise<string>;
 declare function renderSplit(diff: ParsedDiff, language: BundledLanguage | undefined, max?: number, dc?: DiffColors): Promise<string>;
 export declare const __testing: {
     computeHunkBlocks: typeof computeHunkBlocks;
+    detectDiffLanguage: typeof detectDiffLanguage;
     diffOpenLine: typeof diffOpenLine;
     diffOpenUri: typeof diffOpenUri;
     formatToolHeaderName: typeof formatToolHeaderName;
     formatToolHeaderPath: typeof formatToolHeaderPath;
     isToolResultError: typeof isToolResultError;
+    lang: typeof lang;
     normalizeShikiContrast: typeof normalizeShikiContrast;
     getSepStyle: typeof getSepStyle;
     parseDiff: typeof parseDiff;

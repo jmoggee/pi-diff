@@ -46,11 +46,23 @@ export interface ReplaceResult {
 export declare function replace(content: string, oldString: string, newString: string, options?: {
     replaceAll?: boolean;
 }): ReplaceResult;
+/** Matching strategies used by the conservative patch matcher. */
+export type PatchStrategy = "simple" | "indent-adjusted" | "escape-normalized" | "unicode-normalized";
+/** A single safe replacement located in the original content. */
+export interface PatchReplacement {
+    start: number;
+    end: number;
+    replacement: string;
+    strategy: PatchStrategy;
+}
+/** Count exact occurrences of `oldText` (overlaps included). */
+export declare function countPatchOccurrences(content: string, oldText: string): number;
 /**
  * Conservative matcher for source mutations: exact text first, then one
  * unambiguous block whose only difference is a uniform indentation shift.
  * Unlike `replace`, it never guesses from similar content or normalizes
  * whitespace inside source tokens.
  */
+export declare function findPatchReplacement(content: string, oldText: string, newText: string): PatchReplacement | undefined;
 export declare function replaceForPatch(content: string, oldText: string, newText: string): ReplaceResult;
 //# sourceMappingURL=replace.d.ts.map

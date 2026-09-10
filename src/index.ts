@@ -1384,11 +1384,13 @@ async function renderSplit(
 
 export const __testing = {
 	computeHunkBlocks,
+	detectDiffLanguage,
 	diffOpenLine,
 	diffOpenUri,
 	formatToolHeaderName,
 	formatToolHeaderPath,
 	isToolResultError,
+	lang,
 	normalizeShikiContrast,
 	getSepStyle,
 	parseDiff,
@@ -1490,11 +1492,10 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 	function formatToolFrameHeaderText(opts: Omit<ToolFrameHeaderOpts, "width">): string {
 		const { topPad = 0, bottomPad = 0, headerLeftPad, suffix = "", label, filePath, fileLine, theme, meta } = opts;
 		const leftPad = " ".repeat(headerLeftPad ?? TOOL_HEADER_LEFT_PAD);
-		const linkedPath = formatToolHeaderPath(theme, sp(filePath ?? ""), cwd, fileLine, process.env.HERDR_WORKSPACE_ID);
 		const content =
 			meta !== undefined && meta !== null
 				? `${leftPad}${meta}${suffix}`
-				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${linkedPath}${suffix}`;
+				: `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${formatToolHeaderPath(theme, sp(filePath ?? ""), cwd, fileLine, process.env.HERDR_WORKSPACE_ID)}${suffix}`;
 		return `${"\n".repeat(topPad)}${content}${"\n".repeat(bottomPad)}`;
 	}
 

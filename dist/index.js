@@ -26,7 +26,7 @@ import { extname, relative, resolve } from "node:path";
 import { hyperlink } from "@earendil-works/pi-tui";
 import { codeToANSI } from "@shikijs/cli";
 import * as Diff from "diff";
-import { executeApplyPatch, formatApplyPatchResult } from "./core/apply-patch.js";
+import { executeApplyPatch, formatApplyPatchResult, parseApplyPatchInput, } from "./core/apply-patch.js";
 import { configIndicatorStyle, loadPiDiffConfig } from "./core/config.js";
 import { computeHunkBlocks, getSepStyle, parseDiff, parsePatchFiles, resolveSepStyle, sepLabelSplit, sepLabelUnified, } from "./core/diff.js";
 import { applyDiffPalette as applySharedDiffPalette, lang as detectDiffLanguage, renderSplit as renderSharedSplit, resolveDiffColors as resolveSharedDiffColors, themeCacheKey as sharedThemeCacheKey, } from "./review/hunk-preview.js";
@@ -1185,11 +1185,13 @@ async function renderSplit(diff, language, max = MAX_PREVIEW_LINES, dc = DEFAULT
 // ---------------------------------------------------------------------------
 export const __testing = {
     computeHunkBlocks,
+    detectDiffLanguage,
     diffOpenLine,
     diffOpenUri,
     formatToolHeaderName,
     formatToolHeaderPath,
     isToolResultError,
+    lang,
     normalizeShikiContrast,
     getSepStyle,
     parseDiff,
@@ -1242,13 +1244,13 @@ export default async function diffRendererExtension(pi) {
     const TOOL_RESULT_INDENT = " ";
     const TOOL_HEADER_LEFT_PAD = 0;
     const DIFF_BODY_LEFT_PAD = 0;
-    /** Built-in `edit` tool diff result frame; intentionally offset from read/write/apply_patch previews. */
+    /** Keep `edit` on the default host Box: no extra edge padding, no title/body gap. */
     const EDIT_DIFF_RESULT_FRAME = {
-        headerLeftPad: 1,
-        bodyLeftPad: 1,
-        topPad: 1,
-        bottomPad: 1,
-        previewBottomPad: 1,
+        headerLeftPad: 0,
+        bodyLeftPad: 0,
+        topPad: 0,
+        bottomPad: 0,
+        previewBottomPad: 0,
     };
     function resolvePreviewDiffColors(theme) {
         resolveDiffColors(theme);
@@ -1262,10 +1264,9 @@ export default async function diffRendererExtension(pi) {
     function formatToolFrameHeaderText(opts) {
         const { topPad = 0, bottomPad = 0, headerLeftPad, suffix = "", label, filePath, fileLine, theme, meta } = opts;
         const leftPad = " ".repeat(headerLeftPad ?? TOOL_HEADER_LEFT_PAD);
-        const linkedPath = formatToolHeaderPath(theme, sp(filePath ?? ""), cwd, fileLine, process.env.HERDR_WORKSPACE_ID);
         const content = meta !== undefined && meta !== null
             ? `${leftPad}${meta}${suffix}`
-            : `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${linkedPath}${suffix}`;
+            : `${leftPad}${theme.fg("toolTitle", theme.bold(formatToolHeaderName(label ?? "")))} ${formatToolHeaderPath(theme, sp(filePath ?? ""), cwd, fileLine, process.env.HERDR_WORKSPACE_ID)}${suffix}`;
         return `${"\n".repeat(topPad)}${content}${"\n".repeat(bottomPad)}`;
     }
     function formatToolFrameHeader(opts) {
@@ -1290,8 +1291,8 @@ export default async function diffRendererExtension(pi) {
     }
     function formatToolErrorResult(name, message, theme) {
         const meta = theme.fg("error", theme.bold(formatToolHeaderName(name)));
-        const header = formatToolFrameHeaderText({ meta, theme, headerLeftPad: 1, topPad: 0, bottomPad: 1 });
-        return `${header}\n ${theme.fg("error", message)}\n`;
+        const header = formatToolFrameHeaderText({ meta, theme, bottomPad: 0 });
+        return `${header}\n${theme.fg("error", message)}`;
     }
     function summarizeApplyPatchChanges(changes, theme) {
         const labels = changes.map((change) => formatToolHeaderPath(theme, sp(change.path)));
@@ -1303,7 +1304,6 @@ export default async function diffRendererExtension(pi) {
         const applied = Array.isArray(result?.applied) ? result.applied : [];
         if (!applied.length)
             return false;
-        const w = termW();
         const previewable = applied.filter((change) => {
             if (typeof change?.path !== "string")
                 return false;
@@ -1313,7 +1313,7 @@ export default async function diffRendererExtension(pi) {
                 return typeof change.oldContent === "string";
             return false;
         });
-        if (previewable.length !== applied.length)
+        if (!previewable.length)
             return false;
         if (previewable.length === 1) {
             const change = previewable[0];
@@ -1321,7 +1321,7 @@ export default async function diffRendererExtension(pi) {
                 clearToolHeaderBg(text);
                 resolvePreviewDiffColors(theme);
                 const lineCount = change.newContent.split("\n").length;
-                const newHdr = bgLine(`${theme.fg("success", `✓ new file (${lineCount} lines)`)}`, w);
+                const newHdr = theme.fg("success", `✓ new file (${lineCount} lines)`);
                 const fp = change.path;
                 const pk = `ap:nf:${sharedThemeCacheKey(theme)}:${fp}:${lineCount}`;
                 if (ctx.state._nfk !== pk) {
@@ -1345,13 +1345,12 @@ export default async function diffRendererExtension(pi) {
                 typeof change.oldContent === "string" &&
                 typeof change.path === "string") {
                 const parsed = parseDiff(change.oldContent, change.newContent ?? "");
-                setDiffPreviewTask(text, "ap", (width) => formatToolFrameHeader({
+                setDiffPreviewTask(text, "ap", () => formatToolFrameHeaderText({
                     meta: `${theme.fg("toolTitle", theme.bold(formatToolHeaderName("apply_patch")))}${TOOL_RESULT_INDENT}${theme.fg("muted", `(1 change)`)}${TOOL_RESULT_INDENT}${formatToolHeaderPath(theme, sp(change.path))}`,
                     theme,
-                    width,
                     topPad: 0,
-                    bottomPad: 1,
-                }), parsed, detectDiffLanguage(change.path), MAX_PREVIEW_LINES, theme, ctx, { previewBottomPad: 1, compactGutter: true });
+                    bottomPad: 0,
+                }), parsed, detectDiffLanguage(change.path), MAX_PREVIEW_LINES, theme, ctx, { previewBottomPad: 0, compactGutter: true });
                 return true;
             }
             return false;
@@ -1375,13 +1374,12 @@ export default async function diffRendererExtension(pi) {
             chars += parsed.chars;
             lines.push(...parsed.lines);
         }
-        setDiffPreviewTask(text, "ap", (width) => formatToolFrameHeader({
+        setDiffPreviewTask(text, "ap", () => formatToolFrameHeaderText({
             meta: `${theme.fg("toolTitle", theme.bold(formatToolHeaderName("apply_patch")))}${TOOL_RESULT_INDENT}${theme.fg("muted", `(${previewable.length} changes)`)} ${summarizeThemed(added, removed, theme)}${TOOL_RESULT_INDENT}${summarizeApplyPatchChanges(previewable, theme)}`,
             theme,
-            width,
             topPad: 0,
-            bottomPad: 1,
-        }), { lines, added, removed, chars }, mixedLanguage ? undefined : language, MAX_PREVIEW_LINES, theme, ctx, { previewBottomPad: 1, compactGutter: true });
+            bottomPad: 0,
+        }), { lines, added, removed, chars }, mixedLanguage ? undefined : language, MAX_PREVIEW_LINES, theme, ctx, { previewBottomPad: 0, compactGutter: true });
         return true;
     }
     function editEditsCountLabel(edits, diffLines, theme) {
@@ -1466,7 +1464,7 @@ export default async function diffRendererExtension(pi) {
             return bottom ? `${main}\n${bottom}` : main;
         };
         text.__piDiffTask = {
-            placeholder: joinHeaderBody(termW(), padDiffBody(theme.fg("muted", " rendering diff…"), frame?.bodyLeftPad)),
+            placeholder: joinHeaderBody(termW(), padDiffBody(theme.fg("muted", "rendering diff…"), frame?.bodyLeftPad)),
             fallback: header(termW()),
             invalidate: ctx.invalidate,
             key: (width) => {
@@ -1523,6 +1521,7 @@ export default async function diffRendererExtension(pi) {
     registerToolIfEnabled("write", {
         ...origWrite,
         name: "write",
+        renderShell: "default",
         async execute(tid, params, sig, upd, ctx) {
             const fp = params.path ?? params.file_path ?? "";
             let old = null;
@@ -1571,25 +1570,23 @@ export default async function diffRendererExtension(pi) {
             const label = isNew ? "create" : "write";
             const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
             resolveDiffColors(theme);
-            const w = termW();
             const stats = writeCallStatsSuffix(ctx.toolCallId, theme);
             const fileLine = writeHeaderStatsByCallId.get(ctx.toolCallId)?.line ?? (isNew ? 1 : undefined);
             if (args?.content && !ctx.argsComplete) {
                 const n = String(args.content).split("\n").length;
                 const suffix = `${TOOL_RESULT_INDENT}${theme.fg("muted", `(${n} lines…)`)}${stats ? ` ${stats.trimStart()}` : ""}`;
                 setToolHeaderBg(text);
-                text.setText(formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix, topPad: 0, bottomPad: 1 }));
+                text.setText(formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix, topPad: 0, bottomPad: 0 }));
                 return text;
             }
             if (args?.content && ctx.argsComplete && isNew) {
-                const title = formatToolFrameHeader({
+                const title = formatToolFrameHeaderText({
                     label,
                     filePath: fp,
                     fileLine,
                     theme,
-                    width: w,
                     topPad: 0,
-                    bottomPad: 1,
+                    bottomPad: 0,
                 });
                 const previewKey = `create:${sharedThemeCacheKey(theme)}:${fp}:${String(args.content).length}`;
                 if (ctx.state._previewKey !== previewKey) {
@@ -1610,7 +1607,7 @@ export default async function diffRendererExtension(pi) {
                 return text;
             }
             setToolHeaderBg(text);
-            text.setText(formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix: stats, topPad: 0, bottomPad: 1 }));
+            text.setText(formatToolFrameHeaderText({ label, filePath: fp, fileLine, theme, suffix: stats, topPad: 0, bottomPad: 0 }));
             return text;
         },
         renderResult(result, _opt, theme, ctx) {
@@ -1629,7 +1626,7 @@ export default async function diffRendererExtension(pi) {
             if (d?._type === "diff") {
                 setDiffPreviewTask(text, "wd", "", d.diff, d.language, MAX_RENDER_LINES, theme, ctx, {
                     omitHeader: true,
-                    previewBottomPad: 1,
+                    previewBottomPad: 0,
                     compactGutter: true,
                 });
                 return text;
@@ -1637,15 +1634,14 @@ export default async function diffRendererExtension(pi) {
             if (d?._type === "noChange") {
                 text.__piDiffTask = undefined;
                 clearToolHeaderBg(text);
-                text.setText(`${TOOL_RESULT_INDENT}${theme.fg("muted", "✓ no changes")}`);
+                text.setText(theme.fg("muted", "✓ no changes"));
                 return text;
             }
             if (d?._type === "new") {
                 const { lines: lineCount, content: rawContent, filePath: fp } = d;
                 clearToolHeaderBg(text);
                 resolvePreviewDiffColors(theme);
-                const w = termW();
-                const newHdr = bgLine(`${theme.fg("success", `✓ new file (${lineCount} lines)`)}`, w);
+                const newHdr = theme.fg("success", `✓ new file (${lineCount} lines)`);
                 const pk = `nf:${sharedThemeCacheKey(theme)}:${fp}:${lineCount}`;
                 if (ctx.state._nfk !== pk) {
                     ctx.state._nfk = pk;
@@ -1662,7 +1658,7 @@ export default async function diffRendererExtension(pi) {
                             const maxShow = hlLines.length;
                             const preview = hlLines.slice(0, maxShow).join("\n").replace(/\n+$/, "");
                             const rem = hlLines.length - maxShow;
-                            const moreLine = rem > 0 ? `\n${bgLine(`${TOOL_RESULT_INDENT}${theme.fg("muted", `… ${rem} more lines`)}`, width)}` : "";
+                            const moreLine = rem > 0 ? `\n${bgLine(theme.fg("muted", `… ${rem} more lines`), width)}` : "";
                             return `${newHdr}\n${padDiffBody(preview)}${moreLine}`;
                         },
                     };
@@ -1670,7 +1666,7 @@ export default async function diffRendererExtension(pi) {
                 return text;
             }
             clearToolHeaderBg(text);
-            text.setText(`${TOOL_RESULT_INDENT}${theme.fg("dim", String(result?.content?.[0]?.text ?? "written").slice(0, 120))}`);
+            text.setText(theme.fg("dim", String(result?.content?.[0]?.text ?? "written").slice(0, 120)));
             return text;
         },
     });
@@ -1731,6 +1727,7 @@ export default async function diffRendererExtension(pi) {
     registerToolIfEnabled("edit", {
         ...origEdit,
         name: "edit",
+        renderShell: "default",
         parameters: {
             ...(origEdit.parameters || {}),
             properties: {
@@ -1785,37 +1782,21 @@ export default async function diffRendererExtension(pi) {
         },
         renderCall(args, theme, ctx) {
             const fp = args?.path ?? args?.file_path ?? "";
-            const operations = getEditOperations(args);
             const text = ctx.lastComponent ?? new TextComponent("", 0, 0);
             resolvePreviewDiffColors(theme);
             const stats = editCallStatsSuffix(ctx.toolCallId, theme);
             const fileLine = editHeaderStatsByCallId.get(ctx.toolCallId)?.line;
-            if (ctx.argsComplete && operations.length > 0) {
-                setToolHeaderBg(text);
-                text.setText(formatToolFrameHeaderText({
-                    label: "edit",
-                    filePath: fp,
-                    fileLine,
-                    theme,
-                    suffix: stats,
-                    topPad: EDIT_DIFF_RESULT_FRAME.topPad,
-                    bottomPad: EDIT_DIFF_RESULT_FRAME.bottomPad,
-                    headerLeftPad: EDIT_DIFF_RESULT_FRAME.headerLeftPad,
-                }));
-            }
-            else {
-                text.setText(formatToolFrameHeader({
-                    label: "edit",
-                    filePath: fp,
-                    fileLine,
-                    theme,
-                    width: termW(),
-                    suffix: stats,
-                    topPad: EDIT_DIFF_RESULT_FRAME.topPad,
-                    bottomPad: EDIT_DIFF_RESULT_FRAME.bottomPad,
-                    headerLeftPad: EDIT_DIFF_RESULT_FRAME.headerLeftPad,
-                }));
-            }
+            setToolHeaderBg(text);
+            text.setText(formatToolFrameHeaderText({
+                label: "edit",
+                filePath: fp,
+                fileLine,
+                theme,
+                suffix: stats,
+                topPad: EDIT_DIFF_RESULT_FRAME.topPad,
+                bottomPad: EDIT_DIFF_RESULT_FRAME.bottomPad,
+                headerLeftPad: EDIT_DIFF_RESULT_FRAME.headerLeftPad,
+            }));
             return text;
         },
         renderResult(result, _opt, theme, ctx) {
@@ -1857,50 +1838,117 @@ export default async function diffRendererExtension(pi) {
             }
             text.__piDiffTask = undefined;
             clearToolHeaderBg(text);
-            text.setText(`${TOOL_RESULT_INDENT}${theme.fg("dim", String(result?.content?.[0]?.text ?? "edited").slice(0, 120))}`);
+            text.setText(theme.fg("dim", String(result?.content?.[0]?.text ?? "edited").slice(0, 120)));
             return text;
         },
     });
     registerToolIfEnabled("apply_patch", {
         name: "apply_patch",
         label: "apply_patch",
+        renderShell: "default",
         description: "Multi-file patch engine. One call can add, update, delete, or move multiple files. Uses structured JSON changes array.",
         parameters: {
             type: "object",
+            additionalProperties: false,
             properties: {
                 changes: {
                     type: "array",
-                    description: "Array of file changes to apply atomically.",
+                    minItems: 1,
+                    description: "Changes are fully prepared before commit; filesystem rollback after a commit failure is best effort.",
                     items: {
-                        type: "object",
-                        properties: {
-                            path: { type: "string", description: "Absolute path to the file." },
-                            action: {
-                                type: "string",
-                                enum: ["add", "update", "delete", "move"],
-                                description: "The operation to perform.",
+                        oneOf: [
+                            {
+                                type: "object",
+                                additionalProperties: false,
+                                properties: {
+                                    path: { type: "string", minLength: 1, description: "Path within the current workspace." },
+                                    action: { type: "string", enum: ["add"] },
+                                    content: { type: "string", description: "Content for the new file." },
+                                },
+                                required: ["path", "action", "content"],
                             },
-                            content: { type: "string", description: "Content for new files (action=add)." },
-                            oldText: { type: "string", description: "Text to find for updates (action=update)." },
-                            newText: { type: "string", description: "Replacement text for updates (action=update)." },
-                            movePath: { type: "string", description: "Destination path for moves (action=move)." },
-                        },
-                        required: ["path", "action"],
+                            {
+                                type: "object",
+                                additionalProperties: false,
+                                properties: {
+                                    path: { type: "string", minLength: 1, description: "Path within the current workspace." },
+                                    action: { type: "string", enum: ["update"] },
+                                    oldText: { type: "string", minLength: 1, description: "Unique text to find." },
+                                    newText: { type: "string", description: "Replacement text; omitted means empty text." },
+                                },
+                                required: ["path", "action", "oldText"],
+                            },
+                            {
+                                type: "object",
+                                additionalProperties: false,
+                                properties: {
+                                    path: { type: "string", minLength: 1, description: "Path within the current workspace." },
+                                    action: { type: "string", enum: ["update"] },
+                                    edits: {
+                                        type: "array",
+                                        minItems: 1,
+                                        items: {
+                                            type: "object",
+                                            additionalProperties: false,
+                                            properties: {
+                                                oldText: { type: "string", minLength: 1 },
+                                                newText: { type: "string" },
+                                            },
+                                            required: ["oldText", "newText"],
+                                        },
+                                    },
+                                },
+                                required: ["path", "action", "edits"],
+                            },
+                            {
+                                type: "object",
+                                additionalProperties: false,
+                                properties: {
+                                    path: { type: "string", minLength: 1, description: "Path within the current workspace." },
+                                    action: { type: "string", enum: ["delete"] },
+                                },
+                                required: ["path", "action"],
+                            },
+                            {
+                                type: "object",
+                                additionalProperties: false,
+                                properties: {
+                                    path: { type: "string", minLength: 1, description: "Source path within the current workspace." },
+                                    action: { type: "string", enum: ["move"] },
+                                    movePath: {
+                                        type: "string",
+                                        minLength: 1,
+                                        description: "Destination path within the current workspace.",
+                                    },
+                                },
+                                required: ["path", "action", "movePath"],
+                            },
+                        ],
                     },
                 },
             },
             required: ["changes"],
         },
-        async execute(_tid, params) {
-            const changes = (params.changes ?? []).map((c) => ({
-                path: c.path,
-                action: c.action,
-                content: c.content,
-                oldText: c.oldText,
-                newText: c.newText,
-                movePath: c.movePath,
-            }));
-            const result = await executeApplyPatch(changes);
+        async execute(_tid, params, _signal, _onUpdate, ctx) {
+            let result;
+            try {
+                const changes = parseApplyPatchInput(params);
+                const toolCwd = typeof ctx?.cwd === "string" ? ctx.cwd : cwd;
+                result = await executeApplyPatch(changes, { cwd: toolCwd, root: toolCwd });
+            }
+            catch (error) {
+                result = {
+                    ok: false,
+                    applied: [],
+                    errors: [
+                        {
+                            path: "",
+                            action: "input",
+                            error: error instanceof Error ? error.message : String(error),
+                        },
+                    ],
+                };
+            }
             const output = formatApplyPatchResult(result);
             return {
                 content: [{ type: "text", text: output }],
@@ -1910,6 +1958,7 @@ export default async function diffRendererExtension(pi) {
         },
         renderCall(args, theme, ctx) {
             const text = getWidthAwareText(ctx.lastComponent);
+            resolveDiffColors(theme);
             const changes = Array.isArray(args?.changes) ? args.changes : [];
             const count = changes.length;
             if (ctx.argsComplete && count > 0) {
@@ -1924,7 +1973,7 @@ export default async function diffRendererExtension(pi) {
             text.setText(formatToolFrameHeaderText({
                 meta: `${theme.fg("toolTitle", theme.bold(formatToolHeaderName("apply_patch")))}${suffix}`,
                 topPad: 0,
-                bottomPad: 1,
+                bottomPad: 0,
             }));
             return text;
         },

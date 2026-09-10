@@ -2,10 +2,15 @@
  * apply_patch — Multi-file patch engine.
  *
  * One call can add, update, delete, or move multiple files.
- * Uses replace.ts's conservative matcher for oldText → newText matching.
+ * Updates use a conservative matcher and are committed only after every
+ * change has been prepared successfully.
  */
+export interface ApplyPatchEdit {
+    oldText: string;
+    newText: string;
+}
 export interface ApplyPatchChange {
-    /** Absolute path to the file. */
+    /** Path to the file, relative to the patch workspace or absolute within it. */
     path: string;
     action: "add" | "update" | "delete" | "move";
     /** Content for new files (action=add). */
@@ -14,8 +19,16 @@ export interface ApplyPatchChange {
     oldText?: string;
     /** Replacement text for updates (action=update). */
     newText?: string;
+    /** Multiple disjoint replacements for one update target. */
+    edits?: ApplyPatchEdit[];
     /** Destination path for moves (action=move). */
     movePath?: string;
+}
+export interface ApplyPatchOptions {
+    /** Base directory for relative paths. Defaults to the process cwd. */
+    cwd?: string;
+    /** Workspace boundary. Defaults to cwd. */
+    root?: string;
 }
 export interface ApplyPatchResult {
     ok: boolean;
@@ -36,6 +49,8 @@ export interface ApplyPatchError {
     action: string;
     error: string;
 }
-export declare function executeApplyPatch(changes: ApplyPatchChange[]): Promise<ApplyPatchResult>;
+/** Decode the model-facing tool payload before it reaches the mutation core. */
+export declare function parseApplyPatchInput(rawInput: unknown): ApplyPatchChange[];
+export declare function executeApplyPatch(changes: ApplyPatchChange[], options?: ApplyPatchOptions): Promise<ApplyPatchResult>;
 export declare function formatApplyPatchResult(result: ApplyPatchResult): string;
 //# sourceMappingURL=apply-patch.d.ts.map
