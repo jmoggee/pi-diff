@@ -21,7 +21,7 @@ Implementation: `package.json` defines `prepare` as `npm run build`. The fork al
 
 Regression test: `src/fork-invariants.test.ts` checks the exact `prepare` command. The verification sequence runs `npm ci` and `npm run build`, then requires the tracked build output to remain clean.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1). Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-12. Keep this behavior.
 
 ### Nix, Elixir, and Erlang highlighting
 
@@ -39,7 +39,7 @@ Implementation: keep the entries above in the `EXT_LANG` maps in `src/index.ts` 
 
 Regression test: `src/fork-invariants.test.ts` checks all five extensions through both lookup functions.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1). Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-12. Keep this behavior.
 
 ### Diff filenames are editor links
 
@@ -55,7 +55,7 @@ Implementation: `diffOpenLine` selects the first added line, then the first avai
 
 Regression test: `src/tool-header.test.ts` covers URI construction and filename wrapping. `src/tool-config.test.ts` covers changed-line selection and rendered edit and write headers, including the optional workspace parameter.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1). Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-12. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
 
 ## Upstream review for 2026-09-11
 
@@ -64,6 +64,10 @@ The previous fork base was `38ab45e` (v0.9.0). One upstream release arrived:
 - v0.9.1 (`79b00a7`) makes apply_patch matching safer and more useful: it accepts common JSON-string and single-object model payloads before strict validation, requires unique replacements, reports ambiguous matches, and conservatively tolerates escaped sequences plus Unicode and trailing-whitespace drift. It also removes the remaining title/body gap from write, edit, and apply_patch rendering and resolves the apply_patch header background before painting it.
 
 This release implements none of the fork invariants. The rebase carries all three local behaviors forward and keeps upstream's zero-gap renderer spacing in the linked write and edit headers.
+
+## Upstream review for 2026-09-12
+
+No upstream commits arrived after `79b00a7` (v0.9.1). `git log HEAD..origin/main` is empty, and the current upstream tree still provides none of the three fork invariants. All local behaviors remain necessary and are carried unchanged.
 
 ## Verification
 
