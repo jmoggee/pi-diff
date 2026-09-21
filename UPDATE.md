@@ -21,7 +21,7 @@ Implementation: `package.json` defines `prepare` as `npm run build`. The fork al
 
 Regression test: `src/fork-invariants.test.ts` checks the exact `prepare` command. The verification sequence runs `npm ci` and `npm run build`, then requires the tracked build output to remain clean.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-20. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-21. Keep this behavior.
 
 ### Nix, Elixir, and Erlang highlighting
 
@@ -39,7 +39,7 @@ Implementation: keep the entries above in the `EXT_LANG` maps in `src/index.ts` 
 
 Regression test: `src/fork-invariants.test.ts` checks all five extensions through both lookup functions.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-20. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-21. Keep this behavior.
 
 ### Diff filenames are editor links
 
@@ -53,13 +53,13 @@ Why the fork needs it: the desktop protocol handler can open the changed locatio
 
 Implementation: `diffOpenLine` selects the first added line, then the first available new or old line. `diffOpenUri` resolves the path, clamps the line to 1, and adds the workspace only when `HERDR_WORKSPACE_ID` is set. `formatToolHeaderPath` wraps the visible filename with the TUI's OSC 8 `hyperlink` helper. Write and edit execution cache the changed line for header rendering. The repository does not infer or discover another workspace.
 
-Regression test: `src/tool-header.test.ts` covers URI construction and filename wrapping. `src/tool-config.test.ts` covers changed-line selection and rendered edit and write headers, including the optional workspace parameter.
+Regression test: `src/tool-header.test.ts` covers URI construction, line clamping, the optional workspace parameter, and filename wrapping. `src/tool-config.test.ts` exercises changed-line selection and the rendered OSC 8 header through the edit tool path.
 
-Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-20. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
+Upstream equivalent: none as of `origin/main` at `79b00a7` (v0.9.1), verified 2026-09-21. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
 
 ## Current upstream review
 
-Verified 2026-09-20 after fetching both remotes. `origin/main` remains at `79b00a7` (v0.9.1), so no upstream functionality arrived since the previous run. Local `main` exactly matched `fork/main`; `git log HEAD..origin/main` was empty, and rebasing onto `origin/main` was a no-op.
+Verified 2026-09-21 after fetching both remotes. `origin/main` remains at `79b00a7` (v0.9.1), so no upstream functionality arrived since the previous run. Local `main` exactly matched `fork/main`; `git log HEAD..origin/main` was empty, and rebasing onto `origin/main` was a no-op.
 
 Direct comparison with the current upstream tree confirms that it still has no install-time build hook or tracked `dist/`, no Nix/Elixir/Erlang extension mappings, and no `pi-diff://open` filename links with changed-line and optional Herdr workspace routing. All three fork behaviors remain necessary, with no redundant local implementation to drop.
 
