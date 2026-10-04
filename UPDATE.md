@@ -21,7 +21,7 @@ Implementation: `package.json` defines `prepare` as `npm run build`. The fork al
 
 Regression test: `src/fork-invariants.test.ts` checks the exact `prepare` command. The verification sequence runs `npm ci` and `npm run build`, then requires the tracked build output to remain clean.
 
-Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-03. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-04. Keep this behavior.
 
 ### Nix, Elixir, and Erlang highlighting
 
@@ -39,7 +39,7 @@ Implementation: keep the entries above in the `EXT_LANG` maps in `src/index.ts` 
 
 Regression test: `src/fork-invariants.test.ts` checks all five extensions through both lookup functions.
 
-Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-03. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-04. Keep this behavior.
 
 ### Diff filenames are editor links
 
@@ -55,15 +55,15 @@ Implementation: `diffOpenLine` selects the first added line, then the first avai
 
 Regression test: `src/tool-header.test.ts` covers URI construction, line clamping, the optional workspace parameter, and filename wrapping. `src/tool-config.test.ts` exercises changed-line selection and the rendered OSC 8 header through the edit tool path.
 
-Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-03. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
+Upstream equivalent: none as of `origin/main` at `448185c` (v0.9.2), verified 2026-10-04. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
 
 ## Current upstream review
 
-Verified 2026-10-03 after fetching both remotes. Local `main` exactly matched `fork/main`, and its merge base with `origin/main` was the current upstream tip, `448185c` (v0.9.2). Upstream has not advanced since the previous run, so there is no new upstream functionality to integrate. The latest upstream functionality remains the v0.9.2 dependency update: it moves the Pi coding-agent and TUI packages from runtime dependencies to host-provided peer dependencies while retaining them as development dependencies, removes the unused direct Pi server dependency and its install-only dependency tree, refreshes both lockfiles, and fixes the pnpm coding-agent snapshot to include its `ws` peer resolution. This is dependency metadata and installation-footprint work; it does not implement any fork invariant.
+Verified 2026-10-04 after fetching both remotes. Local `main` exactly matched `fork/main`, and its merge base with `origin/main` was the current upstream tip, `448185c` (v0.9.2). Upstream has not advanced since the previous run, so there is no new upstream functionality to integrate. The latest upstream functionality remains the v0.9.2 dependency update: it moves the Pi coding-agent and TUI packages from runtime dependencies to host-provided peer dependencies while retaining them as development dependencies, removes the unused direct Pi server dependency and its install-only dependency tree, refreshes both lockfiles, and fixes the pnpm coding-agent snapshot to include its `ws` peer resolution. This is dependency metadata and installation-footprint work; it does not implement any fork invariant.
 
 Direct comparison with the current upstream tree confirms that it still has no install-time build hook or tracked `dist/`, no Nix/Elixir/Erlang extension mappings, and no `pi-diff://open` filename links with changed-line and optional Herdr workspace routing. All three fork behaviors remain necessary, with no redundant local implementation to drop. The local series remains directly based on `448185c` and retains upstream's v0.9.2 package structure and lockfiles, so no history rewrite was required this run.
 
-The five verification commands below were run in both the fork and a pristine worktree at exact upstream commit `448185c` on 2026-10-03. Every command exited 127 before exercising project code because this environment has no `npm` executable. The unchanged pristine-upstream failures are the baseline for this run; this is not a permanent allowlist, and all commands must be retried from scratch on the next run. No generated files changed.
+The five verification commands below were run in both the fork and a pristine worktree at exact upstream commit `448185c` on 2026-10-04. Every command exited 127 before exercising project code because this environment has no `npm` executable. The unchanged pristine-upstream failures are the baseline for this run; this is not a permanent allowlist, and all commands must be retried from scratch on the next run. No generated files changed.
 
 ## Verification
 
