@@ -21,7 +21,7 @@ Implementation: `package.json` defines `prepare` as `npm run build`. The fork al
 
 Regression test: `src/fork-invariants.test.ts` checks the exact `prepare` command. The verification sequence runs `npm ci` and `npm run build`, then requires the tracked build output to remain clean.
 
-Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-09. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-10. Keep this behavior.
 
 ### Nix, Elixir, and Erlang highlighting
 
@@ -39,7 +39,7 @@ Implementation: keep the entries above in the `EXT_LANG` maps in `src/index.ts` 
 
 Regression test: `src/fork-invariants.test.ts` checks all five extensions through both lookup functions.
 
-Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-09. Keep this behavior.
+Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-10. Keep this behavior.
 
 ### Diff filenames are editor links
 
@@ -55,17 +55,17 @@ Implementation: `diffOpenLine` selects the first added line, then the first avai
 
 Regression test: `src/tool-header.test.ts` covers URI construction, line clamping, the optional workspace parameter, and filename wrapping. `src/tool-config.test.ts` exercises changed-line selection and the rendered OSC 8 header through the edit tool path.
 
-Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-09. Upstream still renders the filename through a plain `formatToolHeaderPath` helper; its new shell-padding tests do not add links. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
+Upstream equivalent: none as of `origin/main` at `c946f2b` (v0.9.3), verified 2026-10-10. Upstream still renders the filename through a plain `formatToolHeaderPath` helper; its shell-padding tests do not add links. Keep this behavior. If upstream adds clickable filenames later, prefer its implementation only when it preserves the path, line, and optional workspace contract.
 
 ## Current upstream review
 
-Verified 2026-10-09 after fetching both remotes. Before history was changed, local `main` exactly matched `fork/main`; its merge base with `origin/main` was `448185c` (v0.9.2). Both `git log origin/main..HEAD` and `git log HEAD..origin/main` were inspected. Upstream advanced to `c946f2b` (v0.9.3).
+Verified 2026-10-10 after fetching both remotes. Local `main` exactly matched `fork/main`, and its merge base with `origin/main` was the current upstream tip, `c946f2b` (v0.9.3). Both `git log origin/main..HEAD` and `git log HEAD..origin/main` were inspected. The latter was empty: upstream has not advanced since the 2026-10-09 run, so no new upstream functionality arrived in this run.
 
-The new upstream functionality is maintenance and regression coverage rather than a rendering change. Upstream pins the Pi coding-agent and TUI development SDKs to 1.1.0 and refreshes both lockfiles. It adds tests for write, edit, and apply-patch shell padding at multiple host padding values, including double-padding and width-bound checks. It also corrects the split-view documentation to match the existing runtime thresholds and fallbacks. The v0.9.3 release notes explicitly record that tool execution and rendering behavior did not change.
+The most recently incorporated upstream functionality remains the v0.9.3 maintenance and regression coverage reviewed on 2026-10-09. It pins the Pi coding-agent and TUI development SDKs to 1.1.0 and refreshes both lockfiles, adds tests for write, edit, and apply-patch shell padding at multiple host padding values, including double-padding and width-bound checks, and corrects the split-view documentation to match the existing runtime thresholds and fallbacks. The v0.9.3 release notes explicitly record that tool execution and rendering behavior did not change.
 
-Direct comparison with the v0.9.3 tree confirms that upstream still has no install-time build hook or tracked `dist/`, no Nix/Elixir/Erlang extension mappings, and no `pi-diff://open` filename links with changed-line and optional Herdr workspace routing. Its `formatToolHeaderPath` remains a plain themed filename. All three fork behaviors remain necessary, with no redundant local implementation to drop. The local series was rebased cleanly onto exact upstream commit `c946f2b`, preserving upstream's v0.9.3 metadata, SDK versions, lockfiles, documentation, and expanded shell-padding tests.
+Direct comparison with the unchanged v0.9.3 tree confirms that upstream still has no install-time build hook or tracked `dist/`, no Nix/Elixir/Erlang extension mappings, and no `pi-diff://open` filename links with changed-line and optional Herdr workspace routing. Its `formatToolHeaderPath` remains a plain themed filename. All three fork behaviors remain necessary, with no redundant local implementation to drop. `git rebase origin/main` confirmed that the local series is already cleanly based on exact upstream commit `c946f2b`.
 
-The five verification commands below were run in both the fork and a pristine worktree at exact upstream commit `c946f2b` on 2026-10-09. Every command exited 127 before exercising project code because this environment has no `npm` executable. The pristine-upstream failures were identical, so they are the baseline for this run only; all commands must be retried from scratch on the next run. No generated files changed.
+The five verification commands below were run in both the fork and a pristine detached worktree at exact upstream commit `c946f2b` on 2026-10-10. Every command exited 127 before exercising project code because this environment has no `npm` executable. The pristine-upstream failures were identical, so they are the baseline for this run only; all commands must be retried from scratch on the next run. Neither check sequence produced generated or unexpected files.
 
 ## Verification
 
